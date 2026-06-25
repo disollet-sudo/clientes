@@ -1,0 +1,458 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mapa de Clientes</title>
+
+  <!-- Leaflet CSS -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+  <!-- Leaflet MarkerCluster CSS -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.css"/>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.Default.css"/>
+
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: #f5f5f0;
+      color: #1a1a18;
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+
+    /* ── Topo ── */
+    header {
+      background: #fff;
+      border-bottom: 1px solid #e2e0d8;
+      padding: 0 16px;
+      height: 52px;
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      flex-shrink: 0;
+      z-index: 1000;
+    }
+    header h1 { font-size: 15px; font-weight: 600; color: #1a1a18; white-space: nowrap; }
+    .header-stats { display: flex; gap: 12px; margin-left: 8px; }
+    .stat-pill {
+      font-size: 12px;
+      padding: 3px 10px;
+      border-radius: 20px;
+      font-weight: 500;
+    }
+    .stat-pill.total  { background: #e8e6de; color: #444441; }
+    .stat-pill.ativo  { background: #d4edda; color: #155724; }
+    .stat-pill.inativo{ background: #f8d7da; color: #721c24; }
+    .stat-pill.prospect{ background: #cce5ff; color: #004085; }
+
+    /* ── Layout principal ── */
+    .main {
+      display: flex;
+      flex: 1;
+      overflow: hidden;
+    }
+
+    /* ── Sidebar ── */
+    #sidebar {
+      width: 300px;
+      background: #fff;
+      border-right: 1px solid #e2e0d8;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      flex-shrink: 0;
+      transition: width 0.2s;
+    }
+    #sidebar.collapsed { width: 0; }
+
+    .sidebar-tabs {
+      display: flex;
+      border-bottom: 1px solid #e2e0d8;
+      flex-shrink: 0;
+    }
+    .tab-btn {
+      flex: 1;
+      padding: 10px 4px;
+      font-size: 12px;
+      font-weight: 500;
+      background: none;
+      border: none;
+      cursor: pointer;
+      color: #888780;
+      border-bottom: 2px solid transparent;
+      transition: all 0.15s;
+    }
+    .tab-btn.active { color: #1a1a18; border-bottom-color: #1a1a18; }
+
+    .tab-panel { display: none; flex-direction: column; flex: 1; overflow: hidden; }
+    .tab-panel.active { display: flex; }
+
+    /* ── Filtros ── */
+    .filters {
+      padding: 12px;
+      border-bottom: 1px solid #e2e0d8;
+      flex-shrink: 0;
+    }
+    .filter-row { display: flex; gap: 8px; margin-bottom: 8px; }
+    .filter-row:last-child { margin-bottom: 0; }
+    .filters input, .filters select {
+      flex: 1;
+      padding: 7px 10px;
+      font-size: 13px;
+      border: 1px solid #e2e0d8;
+      border-radius: 8px;
+      background: #faf9f7;
+      color: #1a1a18;
+      outline: none;
+    }
+    .filters input:focus, .filters select:focus { border-color: #888; }
+    .btn-filter {
+      padding: 7px 14px;
+      font-size: 13px;
+      background: #1a1a18;
+      color: #fff;
+      border: none;
+      border-radius: 8px;
+      cursor: pointer;
+    }
+    .btn-filter:hover { background: #333; }
+
+    /* ── Lista de clientes ── */
+    #lista-clientes {
+      flex: 1;
+      overflow-y: auto;
+    }
+    .cliente-item {
+      padding: 10px 14px;
+      border-bottom: 1px solid #f0efe8;
+      cursor: pointer;
+      transition: background 0.1s;
+    }
+    .cliente-item:hover { background: #faf9f7; }
+    .cliente-nome { font-size: 13px; font-weight: 500; margin-bottom: 2px; }
+    .cliente-info { font-size: 11px; color: #888780; }
+    .badge {
+      display: inline-block;
+      font-size: 10px;
+      padding: 1px 7px;
+      border-radius: 10px;
+      font-weight: 500;
+    }
+    .badge.ativo   { background: #d4edda; color: #155724; }
+    .badge.inativo { background: #f8d7da; color: #721c24; }
+    .badge.prospect{ background: #cce5ff; color: #004085; }
+
+    /* ── Painel de representantes ── */
+    #rep-lista { flex: 1; overflow-y: auto; padding: 8px; }
+    .rep-card {
+      background: #faf9f7;
+      border: 1px solid #e2e0d8;
+      border-radius: 10px;
+      padding: 12px;
+      margin-bottom: 8px;
+    }
+    .rep-card-header { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+    .rep-dot { width: 12px; height: 12px; border-radius: 50%; flex-shrink: 0; }
+    .rep-nome { font-size: 13px; font-weight: 600; flex: 1; }
+    .rep-actions { display: flex; gap: 6px; }
+    .rep-info { font-size: 12px; color: #888780; }
+    .rep-stats {
+      margin-top: 8px;
+      padding-top: 8px;
+      border-top: 1px solid #e2e0d8;
+      font-size: 12px;
+      display: flex;
+      gap: 12px;
+    }
+    .rep-stat { text-align: center; }
+    .rep-stat strong { display: block; font-size: 15px; font-weight: 600; }
+
+    .btn-sm {
+      padding: 4px 10px;
+      font-size: 12px;
+      border-radius: 6px;
+      cursor: pointer;
+      border: 1px solid #e2e0d8;
+      background: #fff;
+    }
+    .btn-sm:hover { background: #f0efe8; }
+    .btn-sm.danger { color: #721c24; }
+    .btn-sm.primary { background: #1a1a18; color: #fff; border-color: #1a1a18; }
+
+    /* ── Formulário de representante ── */
+    #rep-form-panel {
+      padding: 12px;
+      border-top: 1px solid #e2e0d8;
+      flex-shrink: 0;
+    }
+    #rep-form-panel h3 { font-size: 13px; font-weight: 600; margin-bottom: 10px; }
+    .form-group { margin-bottom: 8px; }
+    .form-group label { font-size: 11px; color: #888780; display: block; margin-bottom: 3px; }
+    .form-group input {
+      width: 100%;
+      padding: 7px 10px;
+      font-size: 13px;
+      border: 1px solid #e2e0d8;
+      border-radius: 8px;
+      background: #faf9f7;
+      color: #1a1a18;
+      outline: none;
+    }
+    .form-group input:focus { border-color: #888; }
+    .form-row { display: flex; gap: 8px; }
+    .form-row .form-group { flex: 1; }
+    .btn-full {
+      width: 100%;
+      padding: 9px;
+      font-size: 13px;
+      background: #1a1a18;
+      color: #fff;
+      border: none;
+      border-radius: 8px;
+      cursor: pointer;
+      margin-top: 4px;
+    }
+    .btn-full:hover { background: #333; }
+    .btn-cancel {
+      width: 100%;
+      padding: 8px;
+      font-size: 13px;
+      background: none;
+      color: #888780;
+      border: 1px solid #e2e0d8;
+      border-radius: 8px;
+      cursor: pointer;
+      margin-top: 6px;
+    }
+
+    /* ── Mapa ── */
+    #map {
+      flex: 1;
+      z-index: 1;
+    }
+
+    /* ── Popup customizado ── */
+    .leaflet-popup-content-wrapper {
+      border-radius: 12px;
+      box-shadow: 0 4px 20px rgba(0,0,0,0.12);
+    }
+    .popup-nome { font-size: 14px; font-weight: 600; margin-bottom: 4px; }
+    .popup-info { font-size: 12px; color: #666; line-height: 1.6; }
+
+    /* ── Loading overlay ── */
+    #loading {
+      position: absolute;
+      top: 52px; left: 0; right: 0; bottom: 0;
+      background: rgba(245,245,240,0.85);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      z-index: 2000;
+      flex-direction: column;
+      gap: 12px;
+    }
+    .spinner {
+      width: 32px; height: 32px;
+      border: 3px solid #e2e0d8;
+      border-top-color: #1a1a18;
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    #loading p { font-size: 14px; color: #888780; }
+    #loading.hidden { display: none; }
+
+    /* ── Legenda ── */
+    .legenda {
+      position: absolute;
+      bottom: 28px;
+      right: 10px;
+      background: #fff;
+      border: 1px solid #e2e0d8;
+      border-radius: 10px;
+      padding: 10px 14px;
+      z-index: 900;
+      font-size: 12px;
+    }
+    .legenda-item { display: flex; align-items: center; gap: 8px; margin-bottom: 5px; }
+    .legenda-item:last-child { margin-bottom: 0; }
+    .legenda-dot { width: 10px; height: 10px; border-radius: 50%; }
+
+    /* ── Botão toggle sidebar ── */
+    #btn-toggle-sidebar {
+      position: absolute;
+      top: 62px;
+      left: 300px;
+      z-index: 800;
+      background: #fff;
+      border: 1px solid #e2e0d8;
+      border-left: none;
+      padding: 8px 5px;
+      cursor: pointer;
+      border-radius: 0 8px 8px 0;
+      transition: left 0.2s;
+      font-size: 16px;
+      line-height: 1;
+    }
+
+    /* ── Toast ── */
+    #toast {
+      position: absolute;
+      bottom: 24px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: #1a1a18;
+      color: #fff;
+      padding: 10px 20px;
+      border-radius: 20px;
+      font-size: 13px;
+      z-index: 3000;
+      opacity: 0;
+      transition: opacity 0.3s;
+      pointer-events: none;
+    }
+    #toast.show { opacity: 1; }
+  </style>
+</head>
+<body>
+
+<!-- Cabeçalho -->
+<header>
+  <h1>📍 Mapa de Clientes</h1>
+  <div class="header-stats">
+    <span class="stat-pill total" id="pill-total">— clientes</span>
+    <span class="stat-pill ativo" id="pill-ativo">— ativos</span>
+    <span class="stat-pill inativo" id="pill-inativo">— inativos</span>
+    <span class="stat-pill prospect" id="pill-prospect">— prospects</span>
+  </div>
+  <div style="margin-left:auto; display:flex; gap:8px;">
+    <button class="btn-sm" onclick="geocodificarPendentes()" title="Geocodificar endereços sem coordenadas">🌐 Geocodificar</button>
+    <button class="btn-sm" onclick="exportarCSV()" title="Exportar lista visível">⬇ Exportar</button>
+  </div>
+</header>
+
+<div class="main" style="position:relative;">
+
+  <!-- Sidebar -->
+  <div id="sidebar">
+    <div class="sidebar-tabs">
+      <button class="tab-btn active" onclick="switchTab('clientes', this)">Clientes</button>
+      <button class="tab-btn" onclick="switchTab('prospects', this)">Prospects</button>
+      <button class="tab-btn" onclick="switchTab('representantes', this)">Representantes</button>
+    </div>
+
+    <!-- Tab: Clientes -->
+    <div id="tab-clientes" class="tab-panel active">
+      <div class="filters">
+        <div class="filter-row">
+          <input type="text" id="filtro-municipio" placeholder="Município..." oninput="filtrarClientes()">
+          <select id="filtro-status" onchange="filtrarClientes()">
+            <option value="">Todos status</option>
+            <option value="ativo">Ativo</option>
+            <option value="inativo">Inativo</option>
+          </select>
+        </div>
+        <div class="filter-row">
+          <input type="text" id="filtro-rep" placeholder="Representante..." oninput="filtrarClientes()">
+          <input type="text" id="filtro-nome" placeholder="Nome/CNPJ..." oninput="filtrarClientes()">
+        </div>
+      </div>
+      <div id="lista-clientes"></div>
+    </div>
+
+    <!-- Tab: Prospects -->
+    <div id="tab-prospects" class="tab-panel">
+      <div class="filters">
+        <div class="filter-row">
+          <select id="filtro-cnae" onchange="filtrarProspects()">
+            <option value="">Todos CNAEs</option>
+            <option value="4711302">4711-3/02 — Supermercados</option>
+            <option value="4759899">4759-8/99 — Artigos p/ casa</option>
+            <option value="4691500">4691-5/00 — Atacado diverso</option>
+          </select>
+        </div>
+        <div class="filter-row">
+          <input type="text" id="filtro-prospect-municipio" placeholder="Município..." oninput="filtrarProspects()">
+          <button class="btn-filter" onclick="buscarProspects()">Buscar</button>
+        </div>
+      </div>
+      <div id="lista-prospects" style="flex:1;overflow-y:auto;"></div>
+    </div>
+
+    <!-- Tab: Representantes -->
+    <div id="tab-representantes" class="tab-panel">
+      <div id="rep-lista"></div>
+
+      <div id="rep-form-panel">
+        <h3 id="rep-form-titulo">+ Novo representante</h3>
+        <input type="hidden" id="rep-id">
+        <div class="form-group">
+          <label>Nome *</label>
+          <input type="text" id="rep-nome" placeholder="Nome completo">
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label>Telefone</label>
+            <input type="text" id="rep-tel" placeholder="(00) 00000-0000">
+          </div>
+          <div class="form-group">
+            <label>E-mail</label>
+            <input type="text" id="rep-email" placeholder="email@...">
+          </div>
+        </div>
+        <div class="form-group">
+          <label>Município base</label>
+          <input type="text" id="rep-municipio" placeholder="Ex: Porto Alegre">
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label>Raio de atuação (km)</label>
+            <input type="number" id="rep-raio" value="50" min="1" max="500">
+          </div>
+          <div class="form-group">
+            <label>Cor no mapa</label>
+            <input type="color" id="rep-cor" value="#3B82F6" style="height:36px;padding:2px 4px;">
+          </div>
+        </div>
+        <p style="font-size:11px;color:#888;margin-bottom:8px">
+          💡 Clique no mapa para definir a localização do representante
+        </p>
+        <button class="btn-full" onclick="salvarRepresentante()">Salvar representante</button>
+        <button class="btn-cancel" onclick="cancelarFormRep()">Cancelar</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Botão toggle sidebar -->
+  <button id="btn-toggle-sidebar" onclick="toggleSidebar()">◀</button>
+
+  <!-- Mapa -->
+  <div id="map"></div>
+
+  <!-- Loading -->
+  <div id="loading">
+    <div class="spinner"></div>
+    <p>Carregando dados...</p>
+  </div>
+
+  <!-- Legenda -->
+  <div class="legenda">
+    <div class="legenda-item"><div class="legenda-dot" style="background:#22c55e"></div> Cliente ativo</div>
+    <div class="legenda-item"><div class="legenda-dot" style="background:#ef4444"></div> Cliente inativo</div>
+    <div class="legenda-item"><div class="legenda-dot" style="background:#3b82f6"></div> Prospect (CNAE)</div>
+    <div class="legenda-item"><div class="legenda-dot" style="background:#a855f7;border:2px solid #7c3aed"></div> Representante</div>
+  </div>
+
+  <!-- Toast -->
+  <div id="toast"></div>
+</div>
+
+<!-- Leaflet JS -->
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
