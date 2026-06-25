@@ -5,9 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Mapa de Clientes</title>
 
-  <!-- Leaflet CSS -->
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
-  <!-- Leaflet MarkerCluster CSS -->
   <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.css"/>
   <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.Default.css"/>
 
@@ -319,7 +317,6 @@
 </head>
 <body>
 
-<!-- Cabeçalho -->
 <header>
   <h1>📍 Mapa de Clientes</h1>
   <div class="header-stats">
@@ -328,7 +325,21 @@
     <span class="stat-pill inativo" id="pill-inativo">— inativos</span>
     <span class="stat-pill prospect" id="pill-prospect">— prospects</span>
   </div>
-  <div style="margin-left:auto; display:flex; gap:8px;">
+
+  <div class="busca-cidade-container" style="display: flex; gap: 6px; align-items: center; margin-left: auto; background: #faf9f7; padding: 4px 8px; border-radius: 8px; border: 1px solid #e2e0d8;">
+    <span style="font-size: 14px;">🏙️</span>
+    <input type="text" id="input-busca-cidade" placeholder="Qual cidade vamos trabalhar hoje? (Ex: Franca, SP)" 
+           style="padding: 4px 8px; border: none; background: transparent; width: 280px; font-size: 12px; outline: none; color: #1a1a18;"
+           onkeypress="if(event.key === 'Enter') buscarEIrParaCidade()">
+    <button onclick="buscarEIrParaCidade()" 
+            style="padding: 4px 12px; background: #22c55e; color: white; border: none; border-radius: 6px; cursor: pointer; font-weight: 600; font-size: 12px; transition: background 0.2s;"
+            onmouseover="this.style.background='#16a34a'" 
+            onmouseout="this.style.background='#22c55e'">
+      Ir para Cidade
+    </button>
+  </div>
+
+  <div style="display:flex; gap:8px;">
     <button class="btn-sm" onclick="geocodificarPendentes()" title="Geocodificar endereços sem coordenadas">🌐 Geocodificar</button>
     <button class="btn-sm" onclick="exportarCSV()" title="Exportar lista visível">⬇ Exportar</button>
   </div>
@@ -336,7 +347,6 @@
 
 <div class="main" style="position:relative;">
 
-  <!-- Sidebar -->
   <div id="sidebar">
     <div class="sidebar-tabs">
       <button class="tab-btn active" onclick="switchTab('clientes', this)">Clientes</button>
@@ -344,7 +354,6 @@
       <button class="tab-btn" onclick="switchTab('representantes', this)">Representantes</button>
     </div>
 
-    <!-- Tab: Clientes -->
     <div id="tab-clientes" class="tab-panel active">
       <div class="filters">
         <div class="filter-row">
@@ -363,7 +372,6 @@
       <div id="lista-clientes"></div>
     </div>
 
-    <!-- Tab: Prospects -->
     <div id="tab-prospects" class="tab-panel">
       <div class="filters">
         <div class="filter-row">
@@ -382,7 +390,6 @@
       <div id="lista-prospects" style="flex:1;overflow-y:auto;"></div>
     </div>
 
-    <!-- Tab: Representantes -->
     <div id="tab-representantes" class="tab-panel">
       <div id="rep-lista"></div>
 
@@ -426,19 +433,15 @@
     </div>
   </div>
 
-  <!-- Botão toggle sidebar -->
   <button id="btn-toggle-sidebar" onclick="toggleSidebar()">◀</button>
 
-  <!-- Mapa -->
   <div id="map"></div>
 
-  <!-- Loading -->
   <div id="loading">
     <div class="spinner"></div>
     <p>Carregando dados...</p>
   </div>
 
-  <!-- Legenda -->
   <div class="legenda">
     <div class="legenda-item"><div class="legenda-dot" style="background:#22c55e"></div> Cliente ativo</div>
     <div class="legenda-item"><div class="legenda-dot" style="background:#ef4444"></div> Cliente inativo</div>
@@ -446,11 +449,9 @@
     <div class="legenda-item"><div class="legenda-dot" style="background:#a855f7;border:2px solid #7c3aed"></div> Representante</div>
   </div>
 
-  <!-- Toast -->
   <div id="toast"></div>
 </div>
 
-<!-- Leaflet JS -->
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"></script>
 <script src="app.js"></script>
