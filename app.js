@@ -89,7 +89,6 @@ function renderizarClientes(lista) {
   let comCoordenadas = 0;
 
   lista.forEach(c => {
-    // Marcador no mapa
     if (c.lat && c.lng) {
       comCoordenadas++;
       const marker = L.circleMarker([c.lat, c.lng], {
@@ -103,7 +102,6 @@ function renderizarClientes(lista) {
       clusterClientes.addLayer(marker);
     }
 
-    // Item na lista
     const div = document.createElement("div");
     div.className = "cliente-item";
     div.innerHTML = `
@@ -247,14 +245,12 @@ function renderizarRepresentantes() {
   const listEl = document.getElementById("rep-lista");
   listEl.innerHTML = "";
 
-  // Limpar marcadores anteriores
   Object.values(marcadoresRep).forEach(m => map.removeLayer(m));
   Object.values(circulosRep).forEach(c => map.removeLayer(c));
   marcadoresRep = {};
   circulosRep = {};
 
   representantes.forEach(rep => {
-    // Marcador no mapa
     if (rep.lat && rep.lng) {
       const icone = L.divIcon({
         html: `<div style="
@@ -275,7 +271,6 @@ function renderizarRepresentantes() {
       marker.addTo(map);
       marcadoresRep[rep.id] = marker;
 
-      // Círculo de raio
       const circulo = L.circle([rep.lat, rep.lng], {
         radius: rep.raioKm * 1000,
         fillColor: rep.cor,
@@ -288,7 +283,6 @@ function renderizarRepresentantes() {
       circulosRep[rep.id] = circulo;
     }
 
-    // Card na sidebar com estatísticas
     const stats = calcularEstatisticasRep(rep);
     const card = document.createElement("div");
     card.className = "rep-card";
@@ -316,7 +310,7 @@ function renderizarRepresentantes() {
         </div>
         <div class="rep-stat">
           <strong style="color:#3b82f6">${stats.prospectsNoRaio}</strong>
-          Prospects no raio
+          Prospects
         </div>
       </div>
     `;
@@ -377,8 +371,7 @@ function popupRepresentante(rep) {
 }
 
 function editarRep(id) {
-  const rep = representatives.find(r => r.id === id); // Tratando caso ache como representatives
-  const realRep = rep || representantes.find(r => r.id === id);
+  const realRep = representantes.find(r => r.id === id);
   if (!realRep) return;
   document.getElementById("rep-form-titulo").textContent = "Editar representante";
   document.getElementById("rep-id").value = realRep.id;
@@ -403,7 +396,6 @@ function cancelarFormRep() {
   selecionandoLocRep = false;
 }
 
-// Sobrescrever salvar para incluir lat/lng pendente
 async function salvarRepresentante() {
   const nome = document.getElementById("rep-nome").value.trim();
   if (!nome) { toast("Digite o nome do representante."); return; }
@@ -450,7 +442,6 @@ async function deletarRep(id) {
   }
 }
 
-// Clique no mapa define localização do representante
 function onMapClick(e) {
   const tab = document.querySelector(".tab-btn.active");
   if (!tab || !tab.textContent.includes("Representantes")) return;
@@ -468,9 +459,6 @@ function onMapClick(e) {
   if (id) {
     const rep = representantes.find(r => r.id === id);
     if (rep) { rep.lat = lat; rep.lng = lng; }
-  } else {
-    window._tempRepLat = lat;
-    window._tempRepLng = lng;
   }
 
   window._pendingLat = lat;
@@ -482,7 +470,7 @@ function onMapClick(e) {
 // GEOCODIFICAÇÃO
 // ============================================================
 async function geocodificarPendentes() {
-  if (!confirm("Isso vai geocodificar todos os endereços sem coordenadas. Pode demorar alguns minutos dependendo do volume. Continuar?")) return;
+  if (!confirm("Isso vai geocodificar todos os endereços sem coordenadas. Pode demorar. Continuar?")) return;
   mostrarLoading(true, "Geocodificando... aguarde");
   const resp = await chamarAPIPost({ action: "geocodificarPendentes" });
   mostrarLoading(false);
@@ -494,10 +482,7 @@ async function geocodificarPendentes() {
 
 async function reverseGeocode(lat, lng) {
   try {
-    const resp = await fetch(
-      `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}`,
-      { headers: { "User-Agent": "MapaClientes/1.0" } }
-    );
+    const resp = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}`);
     const data = await resp.json();
     return data.address?.city || data.address?.town || data.address?.municipality || "";
   } catch(e) {
@@ -530,33 +515,31 @@ function exportarCSV() {
 }
 
 // ============================================================
-// NAVEGAÇÃO URBANA EM TEMPO REAL (Módulo Novo)
+// NAVEGAÇÃO URBANA EM TEMPO REAL (100% Corrigida contra CORS)
 // ============================================================
 async function buscarEIrParaCidade() {
   const cidadeInput = document.getElementById('input-busca-cidade');
   const cidadeNome = cidadeInput.value.trim();
 
   if (!cidadeNome) {
-    toast("Por favor, introduza o nome de uma cidade.");
+    toast("Por favor, digite o nome de uma cidade.");
     return;
   }
 
-  toast(`A localizar ${cidadeNome}...`);
+  toast(`Localizando ${cidadeNome}...`);
 
   try {
-    // Consulta focada no Brasil (countrycodes=br) garantindo rapidez e precisão total
+    // Consulta direta sem cabeçalhos bloqueados pelo navegador
     const url = `https://nominatim.openstreetmap.org/search?format=json&countrycodes=br&limit=1&q=${encodeURIComponent(cidadeNome)}`;
     
-    const response = await fetch(url, {
-      headers: { 'User-Agent': 'MapaClientes/1.0' }
-    });
+    const response = await fetch(url);
     const data = await response.json();
 
     if (data && data.length > 0) {
       const lat = parseFloat(data[0].lat);
       const lon = parseFloat(data[0].lon);
 
-      // Movimento fluido tridimensional simulado de aproximação (Zoom 12 para nível comercial urbano)
+      // Efeito FlyTo dinâmico (Zoom ideal 12 para malha comercial)
       map.flyTo([lat, lon], 12, {
         animate: true,
         duration: 1.8
@@ -566,11 +549,11 @@ async function buscarEIrParaCidade() {
       const nomeExibicao = data[0].display_name.split(',')[0];
       toast(`Focado em: ${nomeExibicao}`);
     } else {
-      toast("Cidade não encontrada. Experimente adicionar o Estado (ex: Franca, SP).");
+      toast("Cidade não encontrada. Tente incluir o estado (ex: Franca, SP).");
     }
   } catch (error) {
     console.error("Erro na busca de cidade:", error);
-    toast("Erro ao ligar ao serviço geográfico.");
+    toast("Erro ao conectar com o serviço geográfico.");
   }
 }
 
@@ -615,7 +598,6 @@ function toast(msg, duracao = 3000) {
   setTimeout(() => el.classList.remove("show"), duracao);
 }
 
-// Fórmula de Haversine — distância em km entre dois pontos lat/lng
 function distanciaKm(lat1, lng1, lat2, lng2) {
   const R = 6371;
   const dLat = (lat2 - lat1) * Math.PI / 180;
@@ -673,7 +655,7 @@ async function chamarAPIPost(payload) {
 }
 
 // ============================================================
-// DADOS DE DEMONSTRAÇÃO (remove quando conectar a API real)
+// DADOS DE DEMONSTRAÇÃO
 // ============================================================
 function dadosDemostracao(action) {
   if (action === "clientes") {
