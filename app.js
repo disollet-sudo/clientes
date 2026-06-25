@@ -3,7 +3,7 @@
 // Configure a URL da sua API do Apps Script abaixo:
 // ============================================================
 
-const API_URL = "https://script.google.com/macros/s/AKfycbyW2XXZQNwZNpf0XCPaur5Q8H4ga6_zl80hMeXSEjyYZURnQ9bcYv4RdOFbTZOkdOXN-g/exec";
+const API_URL = "https://script.google.com/macros/s/AKfycbxh8ikW_2hvTdz2UVFm2ctxbE2iec5ICHYb3MgzFB_Cd3FnBOLA2JAsfgd2onU9FMD48g/exec";
 // Exemplo: "https://script.google.com/macros/s/AKfyc.../exec"
 
 // ============================================================
