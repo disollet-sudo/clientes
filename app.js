@@ -377,16 +377,17 @@ function popupRepresentante(rep) {
 }
 
 function editarRep(id) {
-  const rep = representantes.find(r => r.id === id);
-  if (!rep) return;
+  const rep = representatives.find(r => r.id === id); // Tratando caso ache como representatives
+  const realRep = rep || representantes.find(r => r.id === id);
+  if (!realRep) return;
   document.getElementById("rep-form-titulo").textContent = "Editar representante";
-  document.getElementById("rep-id").value = rep.id;
-  document.getElementById("rep-nome").value = rep.nome;
-  document.getElementById("rep-tel").value = rep.telefone;
-  document.getElementById("rep-email").value = rep.email;
-  document.getElementById("rep-municipio").value = rep.municipio;
-  document.getElementById("rep-raio").value = rep.raioKm;
-  document.getElementById("rep-cor").value = rep.cor;
+  document.getElementById("rep-id").value = realRep.id;
+  document.getElementById("rep-nome").value = realRep.nome;
+  document.getElementById("rep-tel").value = realRep.telefone;
+  document.getElementById("rep-email").value = realRep.email;
+  document.getElementById("rep-municipio").value = realRep.municipio;
+  document.getElementById("rep-raio").value = realRep.raioKm;
+  document.getElementById("rep-cor").value = realRep.cor;
   toast("Clique no mapa para reposicionar, ou salve sem alterar localização.");
 }
 
@@ -402,85 +403,7 @@ function cancelarFormRep() {
   selecionandoLocRep = false;
 }
 
-async function salvarRepresentante() {
-  const nome = document.getElementById("rep-nome").value.trim();
-  if (!nome) { toast("Digite o nome do representante."); return; }
-
-  const payload = {
-    action: "salvarRepresentante",
-    id: document.getElementById("rep-id").value || String(Date.now()),
-    nome,
-    telefone: document.getElementById("rep-tel").value,
-    email: document.getElementById("rep-email").value,
-    municipio: document.getElementById("rep-municipio").value,
-    raioKm: parseFloat(document.getElementById("rep-raio").value) || 50,
-    cor: document.getElementById("rep-cor").value,
-    lat: 0,
-    lng: 0
-  };
-
-  // Pegar lat/lng do representante existente se não definiu novo ponto
-  const existente = representantes.find(r => r.id === payload.id);
-  if (existente) { payload.lat = existente.lat; payload.lng = existente.lng; }
-
-  mostrarLoading(true, "Salvando...");
-  const resp = await chamarAPIPost(payload);
-  mostrarLoading(false);
-
-  if (resp.ok) {
-    toast(`Representante ${resp.acao === "criado" ? "cadastrado" : "atualizado"}!`);
-    cancelarFormRep();
-    await carregarRepresentantes();
-  } else {
-    toast("Erro: " + (resp.error || "Falha ao salvar"));
-  }
-}
-
-async function deletarRep(id) {
-  if (!confirm("Remover este representante?")) return;
-  mostrarLoading(true, "Removendo...");
-  const resp = await chamarAPIPost({ action: "deletarRepresentante", id });
-  mostrarLoading(false);
-  if (resp.ok) {
-    toast("Representante removido.");
-    await carregarRepresentantes();
-  }
-}
-
-// Clique no mapa define localização do representante
-function onMapClick(e) {
-  const tab = document.querySelector(".tab-btn.active");
-  if (!tab || !tab.textContent.includes("Representantes")) return;
-
-  const { lat, lng } = e.latlng;
-  document.getElementById("rep-nome").focus();
-  // Armazena temporariamente no campo oculto via geocodificação reversa
-  reverseGeocode(lat, lng).then(municipio => {
-    if (!document.getElementById("rep-municipio").value) {
-      document.getElementById("rep-municipio").value = municipio;
-    }
-  });
-
-  // Salvar lat/lng na instância temporária
-  const id = document.getElementById("rep-id").value;
-  if (id) {
-    const rep = representantes.find(r => r.id === id);
-    if (rep) { rep.lat = lat; rep.lng = lng; }
-  } else {
-    // Novo representante — guarda temporariamente
-    window._tempRepLat = lat;
-    window._tempRepLng = lng;
-  }
-
-  // Atualizar o payload antes de salvar
-  const _orig = salvarRepresentante;
-  window._pendingLat = lat;
-  window._pendingLng = lng;
-  toast(`📍 Localização definida: ${lat.toFixed(4)}, ${lng.toFixed(4)}`);
-}
-
 // Sobrescrever salvar para incluir lat/lng pendente
-const _salvarOriginal = salvarRepresentante;
 async function salvarRepresentante() {
   const nome = document.getElementById("rep-nome").value.trim();
   if (!nome) { toast("Digite o nome do representante."); return; }
@@ -514,6 +437,45 @@ async function salvarRepresentante() {
   } else {
     toast("Erro: " + (resp.error || "Falha ao salvar"));
   }
+}
+
+async function deletarRep(id) {
+  if (!confirm("Remover este representante?")) return;
+  mostrarLoading(true, "Removendo...");
+  const resp = await chamarAPIPost({ action: "deletarRepresentante", id });
+  mostrarLoading(false);
+  if (resp.ok) {
+    toast("Representante removido.");
+    await carregarRepresentantes();
+  }
+}
+
+// Clique no mapa define localização do representante
+function onMapClick(e) {
+  const tab = document.querySelector(".tab-btn.active");
+  if (!tab || !tab.textContent.includes("Representantes")) return;
+
+  const { lat, lng } = e.latlng;
+  document.getElementById("rep-nome").focus();
+  
+  reverseGeocode(lat, lng).then(municipio => {
+    if (!document.getElementById("rep-municipio").value) {
+      document.getElementById("rep-municipio").value = municipio;
+    }
+  });
+
+  const id = document.getElementById("rep-id").value;
+  if (id) {
+    const rep = representantes.find(r => r.id === id);
+    if (rep) { rep.lat = lat; rep.lng = lng; }
+  } else {
+    window._tempRepLat = lat;
+    window._tempRepLng = lng;
+  }
+
+  window._pendingLat = lat;
+  window._pendingLng = lng;
+  toast(`📍 Localização definida: ${lat.toFixed(4)}, ${lng.toFixed(4)}`);
 }
 
 // ============================================================
@@ -565,6 +527,51 @@ function exportarCSV() {
   a.download = "clientes_" + new Date().toISOString().slice(0,10) + ".csv";
   a.click();
   URL.revokeObjectURL(url);
+}
+
+// ============================================================
+// NAVEGAÇÃO URBANA EM TEMPO REAL (Módulo Novo)
+// ============================================================
+async function buscarEIrParaCidade() {
+  const cidadeInput = document.getElementById('input-busca-cidade');
+  const cidadeNome = cidadeInput.value.trim();
+
+  if (!cidadeNome) {
+    toast("Por favor, introduza o nome de uma cidade.");
+    return;
+  }
+
+  toast(`A localizar ${cidadeNome}...`);
+
+  try {
+    // Consulta focada no Brasil (countrycodes=br) garantindo rapidez e precisão total
+    const url = `https://nominatim.openstreetmap.org/search?format=json&countrycodes=br&limit=1&q=${encodeURIComponent(cidadeNome)}`;
+    
+    const response = await fetch(url, {
+      headers: { 'User-Agent': 'MapaClientes/1.0' }
+    });
+    const data = await response.json();
+
+    if (data && data.length > 0) {
+      const lat = parseFloat(data[0].lat);
+      const lon = parseFloat(data[0].lon);
+
+      // Movimento fluido tridimensional simulado de aproximação (Zoom 12 para nível comercial urbano)
+      map.flyTo([lat, lon], 12, {
+        animate: true,
+        duration: 1.8
+      });
+
+      cidadeInput.blur();
+      const nomeExibicao = data[0].display_name.split(',')[0];
+      toast(`Focado em: ${nomeExibicao}`);
+    } else {
+      toast("Cidade não encontrada. Experimente adicionar o Estado (ex: Franca, SP).");
+    }
+  } catch (error) {
+    console.error("Erro na busca de cidade:", error);
+    toast("Erro ao ligar ao serviço geográfico.");
+  }
 }
 
 // ============================================================
@@ -642,7 +649,6 @@ function criarIconeCluster(cluster) {
 // ============================================================
 async function chamarAPI(params) {
   if (!API_URL || API_URL === "SUA_URL_DO_APPS_SCRIPT_AQUI") {
-    // Modo demo — retorna dados de exemplo
     return dadosDemostracao(params.action);
   }
 
