@@ -1,12 +1,17 @@
 // ============================================================
-// MAPA DE CLIENTES — app.js (Versão Definitiva com Print da Planilha)
+// MAPA DE CLIENTES — app.js (Versão Filtro Inteligente e Cache)
 // ============================================================
 
 const API_URL = "https://script.google.com/macros/s/AKfycbxh8ikW_2hvTdz2UVFm2ctxbE2iec5ICHYb3MgzFB_Cd3FnBOLA2JAsfgd2onU9FMD48g/exec";
 
 let map, clusterClientes, clusterProspects;
-let todosClientes = [], todosProspects = [], representantes = [];
-let clientesFiltradosRegiao = [], prospectsFiltradosRegiao = [];
+
+// CACHE GLOBAL: Armazena a planilha inteira para não ter que baixar várias vezes
+let cacheClientes = [], cacheProspects = [], cacheRepresentantes = [];
+let dadosCarregadosGlobais = false;
+
+// DADOS FILTRADOS: O que realmente aparece na tela após a pesquisa
+let clientesFiltradosRegiao = [], prospectsFiltradosRegiao = [], repsFiltradosRegiao = [];
 let marcadoresRep = {}, circulosRep = {};
 let limitesRegiaoAtual = null;
 
@@ -16,7 +21,7 @@ document.addEventListener("DOMContentLoaded", () => {
 });
 
 function inicializarMapa() {
-  map = L.map("map", { center: [-15.78, -47.93], zoom: 5, zoomControl: true });
+  map = L.map("map", { center: [-29.68, -53.80], zoom: 6, zoomControl: true }); 
   
   L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
     attribution: '© <a href="https://openstreetmap.org">OpenStreetMap</a>', 
@@ -31,15 +36,38 @@ function inicializarMapa() {
   map.on("click", onMapClick);
 }
 
-// Converte a vírgula do formato brasileiro para o ponto que o mapa entende
-function formatarCoordenada(valor) {
-  if (!valor) return null;
-  const num = parseFloat(String(valor).replace(',', '.').trim());
-  return isNaN(num) ? null : num;
+// ------------------------------------------------------------
+// EXTRATOR DE COORDENADAS À PROVA DE BALAS
+// ------------------------------------------------------------
+function extrairCoordenadas(obj) {
+  let lat = obj.Lat || obj.lat || obj.latitude || obj.Latitude || obj.LAT;
+  let lng = obj.Lng || obj.lng || obj.longitude || obj.Longitude || obj.LNG;
+  let combo = obj.LatLng || obj.latlng || obj.latLng || obj.Coordenadas || "";
+
+  let strLat = String(lat || "").trim();
+  // Trata casos em que o Excel juntou a Lat e Lng na mesma coluna por erro de formatação
+  if (!combo && strLat.includes("-") && (strLat.match(/-/g) || []).length >= 2 && !lng) {
+    combo = strLat;
+  }
+
+  if (combo) {
+    let limpo = String(combo).replace(/,/g, '.').replace(/\s/g, '');
+    let matches = limpo.match(/-?\d+\.\d+|-?\d+/g);
+    if (matches && matches.length >= 2) {
+      return { lat: parseFloat(matches[0]), lng: parseFloat(matches[1]) };
+    }
+  }
+
+  function normalizar(val) {
+    if (val === undefined || val === null || val === "" || val === "—") return null;
+    let n = parseFloat(String(val).replace(',', '.').trim());
+    return isNaN(n) ? null : n;
+  }
+  return { lat: normalizar(lat), lng: normalizar(lng) };
 }
 
 // ------------------------------------------------------------
-// BUSCA E PROCESSAMENTO
+// FLUXO DE BUSCA E FILTRAGEM
 // ------------------------------------------------------------
 async function iniciarBusca() {
   const cidadeInput = document.getElementById('input-busca-welcome');
@@ -48,7 +76,7 @@ async function iniciarBusca() {
   const cidadeNome = cidadeInput.value.trim();
   if (!cidadeNome) { toast("Por favor, digite uma cidade, bairro ou estado."); return; }
   
-  mostrarLoading(true, `Buscando região de "${cidadeNome}"...`);
+  mostrarLoading(true, `A buscar limites geográficos de "${cidadeNome}"...`);
   
   try {
     const url = `https://nominatim.openstreetmap.org/search?format=json&countrycodes=br&limit=1&addressdetails=1&q=${encodeURIComponent(cidadeNome)}`;
@@ -58,12 +86,17 @@ async function iniciarBusca() {
     if (data && data.length > 0) {
       const lat = parseFloat(data[0].lat), lon = parseFloat(data[0].lon);
       const bbox = data[0].boundingbox;
-      limitesRegiaoAtual = L.latLngBounds(L.latLng(parseFloat(bbox[0]), parseFloat(bbox[2])), L.latLng(parseFloat(bbox[1]), parseFloat(bbox[3])));
+      
+      // Cria o quadrado (fronteira) da região pesquisada (ex: O Estado do RS inteiro, ou a cidade de Gramado)
+      limitesRegiaoAtual = L.latLngBounds(
+        L.latLng(parseFloat(bbox[0]), parseFloat(bbox[2])),
+        L.latLng(parseFloat(bbox[1]), parseFloat(bbox[3]))
+      );
       
       let zoomAlvo = 12;
-      const localidadeTipo = data[0].type || "", classeTipo = data[0].class || "", nomeBaixo = data[0].display_name.toLowerCase();
-      if (localidadeTipo === "state" || nomeBaixo.includes("estado") || (classeTipo === "boundary" && data[0].importance > 0.65)) zoomAlvo = 8;
-      else if (localidadeTipo === "suburb" || localidadeTipo === "neighborhood") zoomAlvo = 14;
+      const tipo = data[0].type || "", classe = data[0].class || "", nomeBaixo = data[0].display_name.toLowerCase();
+      if (tipo === "state" || nomeBaixo.includes("estado") || (classe === "boundary" && data[0].importance > 0.65)) zoomAlvo = 7;
+      else if (tipo === "suburb" || tipo === "neighborhood") zoomAlvo = 14;
       
       map.flyTo([lat, lon], zoomAlvo, { animate: true, duration: 1.5 });
       cidadeInput.blur();
@@ -79,7 +112,16 @@ async function iniciarBusca() {
       if (document.getElementById("painel-regiao-nome")) document.getElementById("painel-regiao-nome").textContent = nomeExibicao;
       if (document.getElementById("regiao-label-top")) document.getElementById("regiao-label-top").textContent = nomeExibicao;
       
-      await carregarDadosDaRegiao(limitesRegiaoAtual);
+      // Se for a primeira pesquisa, baixa os dados da planilha
+      if (!dadosCarregadosGlobais) {
+        mostrarLoading(true, "Lendo base de dados da planilha...");
+        await carregarAPIGlobal();
+      }
+      
+      // Aplica o filtro recortando a área exata
+      aplicarFiltroGeografico(limitesRegiaoAtual);
+      mostrarLoading(false);
+      
     } else {
       mostrarLoading(false); 
       toast("Região não encontrada. Tente detalhar melhor.");
@@ -103,9 +145,8 @@ function novaBusca() {
 }
 window.novaBusca = novaBusca;
 
-async function carregarDadosDaRegiao(bounds) {
-  mostrarLoading(true, "Lendo planilha e plotando mapas...");
-  
+// Baixa e processa a planilha UMA ÚNICA VEZ
+async function carregarAPIGlobal() {
   try {
     const [resClientes, resProspects, resRepresentantes] = await Promise.all([
       chamarAPI({ action: "clientes" }), 
@@ -113,25 +154,31 @@ async function carregarDadosDaRegiao(bounds) {
       chamarAPI({ action: "representantes" })
     ]);
     
-    const brutoClientes = (resClientes.clientes || []).map(c => ({
-      ...c,
-      lat: formatarCoordenada(c.Lat || c.lat || c.latitude),
-      lng: formatarCoordenada(c.Lng || c.lng || c.longitude)
-    }));
+    const arrClientes = Array.isArray(resClientes) ? resClientes : (resClientes.clientes || resClientes.data || []);
+    const arrProspects = Array.isArray(resProspects) ? resProspects : (resProspects.prospects || resProspects.data || []);
+    const arrReps = Array.isArray(resRepresentantes) ? resRepresentantes : (resRepresentantes.representantes || resRepresentantes.data || []);
     
-    // Mapeamento EXATO do print da tela para os Prospects
-    const brutoProspects = (resProspects.prospects || []).map(p => ({
-      ...p,
-      cnpj: p.CNPJ || p.cnpj || "—",
-      nome: p.Nome || p["Razão Social"] || p.nome || "Sem nome",
-      municipio: p.Município || p.Municipio || p.cidade || "—",
-      endereco: p.Endereço || p.Endereco || p.endereco || "—",
-      cnae: p.CNAE_Desc || p.CNAE || p.cnae || "—",
-      lat: formatarCoordenada(p.Lat || p.lat),
-      lng: formatarCoordenada(p.Lng || p.lng)
-    }));
+    cacheClientes = arrClientes.map(c => {
+      const coords = extrairCoordenadas(c);
+      return { ...c, lat: coords.lat, lng: coords.lng };
+    });
     
-    const representantesBrutos = (resRepresentantes.representantes || []).map(r => {
+    cacheProspects = arrProspects.map(p => {
+      const coords = extrairCoordenadas(p);
+      return {
+        ...p,
+        cnpj: p.CNPJ || p.cnpj || "—",
+        nome: p.Nome || p["Razão Social"] || p.nome || p.Razao_Social || "Sem nome",
+        municipio: p.Município || p.Municipio || p.cidade || p.Município_UF || "—",
+        endereco: p.Endereço || p.Endereco || p.endereco || "—",
+        cnae: p.CNAE_Desc || p.CNAE || p.cnae || "—",
+        lat: coords.lat,
+        lng: coords.lng
+      };
+    });
+    
+    cacheRepresentantes = arrReps.map(r => {
+      const coords = extrairCoordenadas(r);
       let nomeRep = r.Nome_completo || r.Fantasia || r.nome || r.Nome || "Representante Oculto";
       let raioKm = r.raioKm || r.raiokm || r.Raio || r["Raio (Km)"] || 50;
       return {
@@ -141,30 +188,44 @@ async function carregarDadosDaRegiao(bounds) {
         municipio: r.Município || r.Municipio || r.cidade || "—",
         cor: r.cor || r.Cor || "#7c3aed",
         raioKm: parseFloat(String(raioKm).replace(',', '.')),
-        lat: formatarCoordenada(r.Lat || r.lat || r.latitude),
-        lng: formatarCoordenada(r.Lng || r.lng || r.longitude)
+        lat: coords.lat,
+        lng: coords.lng
       };
     });
     
-    representantes = representantesBrutos;
-    
-    const boundsExpandido = bounds.pad(0.5);
-    
-    clientesFiltradosRegiao = brutoClientes.filter(c => c.lat && c.lng && boundsExpandido.contains(L.latLng(c.lat, c.lng)));
-    prospectsFiltradosRegiao = brutoProspects.filter(p => p.lat && p.lng && boundsExpandido.contains(L.latLng(p.lat, p.lng)));
-    
-    renderizarClientes(clientesFiltradosRegiao);
-    renderizarProspects(prospectsFiltradosRegiao);
-    renderizarRepresentantes();
-    atualizarPills();
-    renderizarOportunidades();
-    
+    dadosCarregadosGlobais = true;
   } catch (e) {
     console.error(e); 
-    toast("Erro ao carregar dados: " + e.message);
-  } finally {
-    mostrarLoading(false);
+    toast("Erro ao carregar dados. Verifique a consola.");
+    throw e;
   }
+}
+
+// Filtra e puxa os itens com base na região que você buscou!
+function aplicarFiltroGeografico(bounds) {
+  // Expandimos as bordas da pesquisa em 20% para garantir que prospects na beirada da cidade não sumam
+  const boundsExpandido = bounds.pad(0.2);
+  
+  clientesFiltradosRegiao = cacheClientes.filter(c => c.lat && c.lng && boundsExpandido.contains(L.latLng(c.lat, c.lng)));
+  
+  prospectsFiltradosRegiao = cacheProspects.filter(p => p.lat && p.lng && boundsExpandido.contains(L.latLng(p.lat, p.lng)));
+  
+  repsFiltradosRegiao = cacheRepresentantes.filter(r => {
+    if (!r.lat || !r.lng) return true; // Lista os que não tem coordenadas apenas na lateral (com alerta)
+    
+    const pt = L.latLng(r.lat, r.lng);
+    const centro = bounds.getCenter();
+    const dist = distanciaKm(r.lat, r.lng, centro.lat, centro.lng);
+    
+    // O representante aparece se ele está dentro do estado/cidade buscado OU se o raio dele atinge a sua pesquisa
+    return boundsExpandido.contains(pt) || (dist <= r.raioKm);
+  });
+  
+  renderizarClientes(clientesFiltradosRegiao);
+  renderizarProspects(prospectsFiltradosRegiao);
+  renderizarRepresentantes();
+  atualizarPills();
+  renderizarOportunidades();
 }
 
 // ------------------------------------------------------------
@@ -204,6 +265,7 @@ function renderizarProspects(lista) {
   
   lista.forEach(p => {
     if (p.lat && p.lng) {
+      // PROSPECTS = LARANJA
       const marker = L.circleMarker([p.lat, p.lng], {
         radius: 7, fillColor: "#f59e0b", color: "#d97706", weight: 1.5, fillOpacity: 0.85
       });
@@ -231,51 +293,46 @@ function renderizarRepresentantes() {
   Object.values(circulosRep).forEach(c => map.removeLayer(c));
   marcadoresRep = {}; circulosRep = {};
   
-  const representantesNaRegiao = representantes.filter(r => {
-    if (!limitesRegiaoAtual || !r.lat || !r.lng) return true;
-    const pontoRep = L.latLng(r.lat, r.lng);
-    const centroRegiao = limitesRegiaoAtual.getCenter();
-    const distanciaAteCentro = distanciaKm(r.lat, r.lng, centroRegiao.lat, centroRegiao.lng);
-    return limitesRegiaoAtual.pad(0.5).contains(pontoRep) || (distanciaAteCentro <= r.raioKm);
-  });
-
-  representantesNaRegiao.forEach(rep => {
+  repsFiltradosRegiao.forEach(rep => {
     if (rep.lat && rep.lng) {
-      // Ícone garantido, desenhado diretamente sem depender de arquivos externos
-      const icone = L.divIcon({
-        html: `<div style="background:${rep.cor}; width:28px; height:28px; border-radius:50%; border:3px solid #ffffff; box-shadow:0 3px 8px rgba(0,0,0,0.5); display:flex; align-items:center; justify-content:center; font-size:14px;">👤</div>`,
-        className: "marcador-rep-custom", 
-        iconSize: [28, 28], 
-        iconAnchor: [14, 14]
+      // Ícone robusto padrão para não sumir!
+      const marker = L.circleMarker([rep.lat, rep.lng], {
+        radius: 10, fillColor: rep.cor, color: "#ffffff", weight: 3, fillOpacity: 1
       });
       
-      const marker = L.marker([rep.lat, rep.lng], { icon: icone });
       marker.bindPopup(popupRepresentante(rep)); 
       marker.addTo(map); 
       marcadoresRep[rep.id] = marker;
       
       const circulo = L.circle([rep.lat, rep.lng], {
-        radius: rep.raioKm * 1000, fillColor: rep.cor, fillOpacity: 0.05, color: rep.cor, weight: 1.2, dashArray: "4 4"
+        radius: rep.raioKm * 1000, fillColor: rep.cor, fillOpacity: 0.05, color: rep.cor, weight: 1.5, dashArray: "4 4"
       });
       circulo.addTo(map); 
       circulosRep[rep.id] = circulo;
     }
     
     const stats = calcularEstatisticasRep(rep);
+    const avisoGeocodificacao = (!rep.lat || !rep.lng) ? `<span style="color:#ef4444; font-size:11px;">⚠️ Sem coordenadas na planilha</span>` : `⭕ Raio: ${rep.raioKm} km`;
+    
     const div = document.createElement("div"); div.className = "rep-item";
     div.innerHTML = `<div class="rep-item-header"><div class="rep-mini-dot" style="background:${rep.cor}"></div>
-      <span class="rep-item-nome">${rep.nome}</span></div><div class="rep-item-info">${rep.municipio ? "📍 " + rep.municipio + " · " : ""}⭕ Raio: ${rep.raioKm} km</div>
+      <span class="rep-item-nome">${rep.nome}</span></div><div class="rep-item-info">${rep.municipio ? "📍 " + rep.municipio + " · " : ""}${avisoGeocodificacao}</div>
       <div class="rep-item-stats"><div class="rep-mini-stat" style="color:var(--ativo)"><strong>${stats.clientesAtivos}</strong> Ativos</div>
       <div class="rep-mini-stat" style="color:var(--inativo)"><strong>${stats.clientesInativos}</strong> Inat.</div>
       <div class="rep-mini-stat" style="color:var(--prospect)"><strong>${stats.prospectsNoRaio}</strong> Pros.</div></div>`;
-    div.onclick = () => { if (rep.lat && rep.lng) map.flyTo([rep.lat, rep.lng], 11); abrirRepDetalhe(rep, stats); };
+    
+    div.onclick = () => { 
+      if (rep.lat && rep.lng) { map.flyTo([rep.lat, rep.lng], 11); }
+      else { toast(`O representante ${rep.nome} não possui coordenadas.`); }
+      abrirRepDetalhe(rep, stats); 
+    };
     listEl.appendChild(div);
   });
-  if (representantesNaRegiao.length === 0) listEl.innerHTML = `<div class="empty-msg">Nenhum representante sediado ou a cobrir esta área.</div>`;
+  if (repsFiltradosRegiao.length === 0) listEl.innerHTML = `<div class="empty-msg">Nenhum representante sediado ou a cobrir esta área.</div>`;
 }
 
 // ------------------------------------------------------------
-// INTERATIVIDADE E UTILITÁRIOS
+// CÁLCULOS E PAINÉIS
 // ------------------------------------------------------------
 function abrirRepDetalhe(rep, stats) {
   document.getElementById("rep-detalhe").classList.add("open");
@@ -319,14 +376,14 @@ function atualizarPills() {
   if (document.getElementById("stat-ativos")) document.getElementById("stat-ativos").textContent = ativos;
   if (document.getElementById("stat-inativos")) document.getElementById("stat-inativos").textContent = inativos;
   if (document.getElementById("stat-prospects")) document.getElementById("stat-prospects").textContent = prospectsFiltradosRegiao.length;
-  if (document.getElementById("stat-reps")) document.getElementById("stat-reps").textContent = Object.keys(marcadoresRep).length;
+  if (document.getElementById("stat-reps")) document.getElementById("stat-reps").textContent = repsFiltradosRegiao.length;
   if (document.getElementById("stat-ativos-pct")) document.getElementById("stat-ativos-pct").textContent = `${total > 0 ? Math.round((ativos/total)*100) : 0}% do total`;
   if (document.getElementById("stat-inativos-pct")) document.getElementById("stat-inativos-pct").textContent = `${total > 0 ? Math.round((inativos/total)*100) : 0}% do total`;
 }
 
 function renderizarOportunidades() {
   const box = document.getElementById("oport-itens"); if (!box) return;
-  box.innerHTML = prospectsFiltradosRegiao.length > 0 ? `<div class="oport-item"><span class="oport-emoji">🎯</span><div>Existem <b>${prospectsFiltradosRegiao.length} novos prospects</b> na área visível.</div></div>` : `<div class="oport-item">Nenhuma oportunidade pendente encontrada.</div>`;
+  box.innerHTML = prospectsFiltradosRegiao.length > 0 ? `<div class="oport-item"><span class="oport-emoji">🎯</span><div>Existem <b>${prospectsFiltradosRegiao.length} prospects</b> na área filtrada.</div></div>` : `<div class="oport-item">Nenhum prospect mapeado.</div>`;
 }
 
 function switchAba(abaNome, btn) {
@@ -346,8 +403,9 @@ window.togglePainel = togglePainel;
 function calcularEstatisticasRep(rep) {
   if (!rep.lat || !rep.lng) return { clientesAtivos: 0, clientesInativos: 0, prospectsNoRaio: 0 };
   const raioMetros = rep.raioKm * 1000; let ativos = 0, inativos = 0, prospects = 0;
-  clientesFiltradosRegiao.forEach(c => { if (c.lat && c.lng && distanciaKm(rep.lat, rep.lng, c.lat, c.lng) * 1000 <= raioMetros) c.status === "ativo" ? ativos++ : inativos++; });
-  prospectsFiltradosRegiao.forEach(p => { if (p.lat && p.lng && distanciaKm(rep.lat, rep.lng, p.lat, p.lng) * 1000 <= raioMetros) prospects++; });
+  // Agora calcula usando a folha de cálculo INTEIRA da memória para trazer a capacidade real dele!
+  cacheClientes.forEach(c => { if (c.lat && c.lng && distanciaKm(rep.lat, rep.lng, c.lat, c.lng) * 1000 <= raioMetros) c.status === "ativo" ? ativos++ : inativos++; });
+  cacheProspects.forEach(p => { if (p.lat && p.lng && distanciaKm(rep.lat, rep.lng, p.lat, p.lng) * 1000 <= raioMetros) prospects++; });
   return { clientesAtivos: ativos, clientesInativos: inativos, prospectsNoRaio: prospects };
 }
 
@@ -357,7 +415,7 @@ function popupCliente(c) {
 
 function popupRepresentante(rep) {
   const stats = calcularEstatisticasRep(rep);
-  return `<div class="popup-nome">${rep.nome}</div><div class="popup-info"><b>Base Comercial:</b> ${rep.municipio || "—"}<br><b>Raio:</b> ${rep.raioKm} km<hr style="margin:6px 0; border:none; border-top:1px solid #ddd;"><b>Dados na Área:</b><br>✅ Ativos: ${stats.clientesAtivos}<br>❌ Inativos: ${stats.clientesInativos}<br>🎯 Prospects: ${stats.prospectsNoRaio}</div>`;
+  return `<div class="popup-nome">${rep.nome}</div><div class="popup-info"><b>Base Comercial:</b> ${rep.municipio || "—"}<br><b>Raio:</b> ${rep.raioKm} km<hr style="margin:6px 0; border:none; border-top:1px solid #ddd;"><b>Dados Gerais do Rep:</b><br>✅ Ativos: ${stats.clientesAtivos}<br>❌ Inativos: ${stats.clientesInativos}<br>🎯 Prospects: ${stats.prospectsNoRaio}</div>`;
 }
 
 function onMapClick(e) { window._pendingLat = e.latlng.lat; window._pendingLng = e.latlng.lng; }
