@@ -328,14 +328,14 @@
 
   <div class="busca-cidade-container" style="display: flex; gap: 6px; align-items: center; margin-left: auto; background: #faf9f7; padding: 4px 8px; border-radius: 8px; border: 1px solid #e2e0d8;">
     <span style="font-size: 14px;">🏙️</span>
-    <input type="text" id="input-busca-cidade" placeholder="Qual cidade, bairro ou estado vamos trabalhar? (Ex: Rio Grande do Sul)" 
-           style="padding: 4px 8px; border: none; background: transparent; width: 340px; font-size: 12px; outline: none; color: #1a1a18;"
+    <input type="text" id="input-busca-cidade" placeholder="Qual cidade vamos trabalhar hoje? (Ex: Franca, SP)" 
+           style="padding: 4px 8px; border: none; background: transparent; width: 280px; font-size: 12px; outline: none; color: #1a1a18;"
            onkeypress="if(event.key === 'Enter') buscarEIrParaCidade()">
     <button onclick="buscarEIrParaCidade()" 
             style="padding: 4px 12px; background: #22c55e; color: white; border: none; border-radius: 6px; cursor: pointer; font-weight: 600; font-size: 12px; transition: background 0.2s;"
             onmouseover="this.style.background='#16a34a'" 
             onmouseout="this.style.background='#22c55e'">
-      Pesquisar Região
+      Ir para Cidade
     </button>
   </div>
 
@@ -357,16 +357,16 @@
     <div id="tab-clientes" class="tab-panel active">
       <div class="filters">
         <div class="filter-row">
-          <input type="text" id="filtro-municipio" placeholder="Município..." oninput="filtrarClientesLocal()">
-          <select id="filtro-status" onchange="filtrarClientesLocal()">
+          <input type="text" id="filtro-municipio" placeholder="Município..." oninput="filtrarClientes()">
+          <select id="filtro-status" onchange="filtrarClientes()">
             <option value="">Todos status</option>
             <option value="ativo">Ativo</option>
             <option value="inativo">Inativo</option>
           </select>
         </div>
         <div class="filter-row">
-          <input type="text" id="filtro-rep" placeholder="Representante..." oninput="filtrarClientesLocal()">
-          <input type="text" id="filtro-nome" placeholder="Nome/CNPJ..." oninput="filtrarClientesLocal()">
+          <input type="text" id="filtro-rep" placeholder="Representante..." oninput="filtrarClientes()">
+          <input type="text" id="filtro-nome" placeholder="Nome/CNPJ..." oninput="filtrarClientes()">
         </div>
       </div>
       <div id="lista-clientes"></div>
@@ -375,13 +375,16 @@
     <div id="tab-prospects" class="tab-panel">
       <div class="filters">
         <div class="filter-row">
-          <select id="filtro-cnae" onchange="filtrarProspectsLocal()">
+          <select id="filtro-cnae" onchange="filtrarProspects()">
             <option value="">Todos CNAEs</option>
             <option value="4711302">4711-3/02 — Supermercados</option>
             <option value="4759899">4759-8/99 — Artigos p/ casa</option>
             <option value="4691500">4691-5/00 — Atacado diverso</option>
           </select>
-          <input type="text" id="filtro-prospect-nome" placeholder="Filtrar por nome..." oninput="filtrarProspectsLocal()">
+        </div>
+        <div class="filter-row">
+          <input type="text" id="filtro-prospect-municipio" placeholder="Município..." oninput="filtrarProspects()">
+          <button class="btn-filter" onclick="buscarProspects()">Buscar</button>
         </div>
       </div>
       <div id="lista-prospects" style="flex:1;overflow-y:auto;"></div>
@@ -391,7 +394,7 @@
       <div id="rep-lista"></div>
 
       <div id="rep-form-panel">
-        <h3 id="rep-form-titulo">+ Novo representante</h3>
+        <h3 id="rep-form-titulo">+ Novo representative</h3>
         <input type="hidden" id="rep-id">
         <div class="form-group">
           <label>Nome *</label>
@@ -436,7 +439,7 @@
 
   <div id="loading">
     <div class="spinner"></div>
-    <p>Aguardando pesquisa de cidade ou estado...</p>
+    <p>Carregando dados...</p>
   </div>
 
   <div class="legenda">
