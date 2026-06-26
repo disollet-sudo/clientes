@@ -1,8 +1,7 @@
 // ============================================================
-// MAPA DE CLIENTES — app.js (Versão Completa e Final)
+// MAPA DE CLIENTES — app.js (Versão Definitiva com Print da Planilha)
 // ============================================================
 
-// Link da API do Google Apps Script
 const API_URL = "https://script.google.com/macros/s/AKfycbxh8ikW_2hvTdz2UVFm2ctxbE2iec5ICHYb3MgzFB_Cd3FnBOLA2JAsfgd2onU9FMD48g/exec";
 
 let map, clusterClientes, clusterProspects;
@@ -11,7 +10,6 @@ let clientesFiltradosRegiao = [], prospectsFiltradosRegiao = [];
 let marcadoresRep = {}, circulosRep = {};
 let limitesRegiaoAtual = null;
 
-// Inicialização
 document.addEventListener("DOMContentLoaded", () => {
   inicializarMapa();
   mostrarLoading(false);
@@ -25,24 +23,23 @@ function inicializarMapa() {
     maxZoom: 19
   }).addTo(map);
   
-  clusterClientes = L.markerClusterGroup({ 
-    chunkedLoading: true, 
-    maxClusterRadius: 45, 
-    iconCreateFunction: criarIconeCluster 
-  });
-  
-  clusterProspects = L.markerClusterGroup({ 
-    chunkedLoading: true, 
-    maxClusterRadius: 45 
-  });
+  clusterClientes = L.markerClusterGroup({ chunkedLoading: true, maxClusterRadius: 45, iconCreateFunction: criarIconeCluster });
+  clusterProspects = L.markerClusterGroup({ chunkedLoading: true, maxClusterRadius: 45 });
   
   map.addLayer(clusterClientes); 
   map.addLayer(clusterProspects);
   map.on("click", onMapClick);
 }
 
+// Converte a vírgula do formato brasileiro para o ponto que o mapa entende
+function formatarCoordenada(valor) {
+  if (!valor) return null;
+  const num = parseFloat(String(valor).replace(',', '.').trim());
+  return isNaN(num) ? null : num;
+}
+
 // ------------------------------------------------------------
-// FUNÇÕES DE BUSCA E NAVEGAÇÃO
+// BUSCA E PROCESSAMENTO
 // ------------------------------------------------------------
 async function iniciarBusca() {
   const cidadeInput = document.getElementById('input-busca-welcome');
@@ -51,7 +48,7 @@ async function iniciarBusca() {
   const cidadeNome = cidadeInput.value.trim();
   if (!cidadeNome) { toast("Por favor, digite uma cidade, bairro ou estado."); return; }
   
-  mostrarLoading(true, `A buscar dados geográficos de "${cidadeNome}"...`);
+  mostrarLoading(true, `Buscando região de "${cidadeNome}"...`);
   
   try {
     const url = `https://nominatim.openstreetmap.org/search?format=json&countrycodes=br&limit=1&addressdetails=1&q=${encodeURIComponent(cidadeNome)}`;
@@ -106,17 +103,8 @@ function novaBusca() {
 }
 window.novaBusca = novaBusca;
 
-// ------------------------------------------------------------
-// PROCESSAMENTO DE DADOS (COM CORREÇÃO DE VÍRGULAS)
-// ------------------------------------------------------------
-function formatarCoordenada(valor) {
-  if (!valor) return null;
-  const numero = parseFloat(String(valor).replace(',', '.'));
-  return isNaN(numero) ? null : numero;
-}
-
 async function carregarDadosDaRegiao(bounds) {
-  mostrarLoading(true, "A aceder à folha de cálculo e a padronizar dados comerciais...");
+  mostrarLoading(true, "Lendo planilha e plotando mapas...");
   
   try {
     const [resClientes, resProspects, resRepresentantes] = await Promise.all([
@@ -125,38 +113,42 @@ async function carregarDadosDaRegiao(bounds) {
       chamarAPI({ action: "representantes" })
     ]);
     
-    const brutoClientes = (resClientes.clientes || []).map(c => {
-      c.lat = formatarCoordenada(c.lat || c.latitude || c.Lat || c.LAT);
-      c.lng = formatarCoordenada(c.lng || c.longitude || c.Lng || c.LNG);
-      return c;
-    });
-    
-    const brutoProspects = (resProspects.prospects || []).map(p => ({
-      ...p,
-      nome: p.Nome_completo || p.Fantasia || p.nome || p.Nome || p["Razão Social"] || "Sem nome",
-      municipio: p.Municipio || p.municipio || p.Cidade || "—",
-      endereco: p.Endereco || p.endereco || p.Logradouro || "—",
-      cnae: p.cnae || p.Cnae || p.CNAE || "—",
-      lat: formatarCoordenada(p.Lat || p.lat || p.latitude || p.LAT),
-      lng: formatarCoordenada(p.Lng || p.lng || p.longitude || p.LNG)
+    const brutoClientes = (resClientes.clientes || []).map(c => ({
+      ...c,
+      lat: formatarCoordenada(c.Lat || c.lat || c.latitude),
+      lng: formatarCoordenada(c.Lng || c.lng || c.longitude)
     }));
     
-    representantes = (resRepresentantes.representantes || []).map(r => {
+    // Mapeamento EXATO do print da tela para os Prospects
+    const brutoProspects = (resProspects.prospects || []).map(p => ({
+      ...p,
+      cnpj: p.CNPJ || p.cnpj || "—",
+      nome: p.Nome || p["Razão Social"] || p.nome || "Sem nome",
+      municipio: p.Município || p.Municipio || p.cidade || "—",
+      endereco: p.Endereço || p.Endereco || p.endereco || "—",
+      cnae: p.CNAE_Desc || p.CNAE || p.cnae || "—",
+      lat: formatarCoordenada(p.Lat || p.lat),
+      lng: formatarCoordenada(p.Lng || p.lng)
+    }));
+    
+    const representantesBrutos = (resRepresentantes.representantes || []).map(r => {
       let nomeRep = r.Nome_completo || r.Fantasia || r.nome || r.Nome || "Representante Oculto";
       let raioKm = r.raioKm || r.raiokm || r.Raio || r["Raio (Km)"] || 50;
       return {
         ...r,
         id: r.Cd_empresa || r.id || r.Id || nomeRep,
         nome: nomeRep,
-        municipio: r.Municipio || r.municipio || r.Cidade || "—",
+        municipio: r.Município || r.Municipio || r.cidade || "—",
         cor: r.cor || r.Cor || "#7c3aed",
         raioKm: parseFloat(String(raioKm).replace(',', '.')),
-        lat: formatarCoordenada(r.Lat || r.lat || r.latitude || r.LAT),
-        lng: formatarCoordenada(r.Lng || r.lng || r.longitude || r.LNG)
+        lat: formatarCoordenada(r.Lat || r.lat || r.latitude),
+        lng: formatarCoordenada(r.Lng || r.lng || r.longitude)
       };
     });
     
-    const boundsExpandido = bounds.pad(0.4);
+    representantes = representantesBrutos;
+    
+    const boundsExpandido = bounds.pad(0.5);
     
     clientesFiltradosRegiao = brutoClientes.filter(c => c.lat && c.lng && boundsExpandido.contains(L.latLng(c.lat, c.lng)));
     prospectsFiltradosRegiao = brutoProspects.filter(p => p.lat && p.lng && boundsExpandido.contains(L.latLng(p.lat, p.lng)));
@@ -169,14 +161,14 @@ async function carregarDadosDaRegiao(bounds) {
     
   } catch (e) {
     console.error(e); 
-    toast("Erro ao carregar dados regionais: " + e.message);
+    toast("Erro ao carregar dados: " + e.message);
   } finally {
     mostrarLoading(false);
   }
 }
 
 // ------------------------------------------------------------
-// RENDERIZAÇÃO NA INTERFACE E MAPA
+// RENDERIZAÇÃO
 // ------------------------------------------------------------
 function renderizarClientes(lista) {
   clusterClientes.clearLayers();
@@ -213,17 +205,17 @@ function renderizarProspects(lista) {
   lista.forEach(p => {
     if (p.lat && p.lng) {
       const marker = L.circleMarker([p.lat, p.lng], {
-        radius: 6, fillColor: "#f59e0b", color: "#d97706", weight: 1.5, fillOpacity: 0.8
+        radius: 7, fillColor: "#f59e0b", color: "#d97706", weight: 1.5, fillOpacity: 0.85
       });
-      marker.bindPopup(`<div class="popup-nome">${p.nome || "Prospect Potencial"}</div>
-        <div class="popup-info"><b>CNPJ:</b> ${p.cnpj || "—"}<br><b>CNAE:</b> ${p.cnae || "—"}<br>
-        <b>Município:</b> ${p.municipio || "—"}<br><b>Endereço:</b> ${p.endereco || "—"}</div>`);
+      marker.bindPopup(`<div class="popup-nome">${p.nome}</div>
+        <div class="popup-info"><b>CNPJ:</b> ${p.cnpj}<br><b>Atividade:</b> ${p.cnae}<br>
+        <b>Município:</b> ${p.municipio}<br><b>Endereço:</b> ${p.endereco}</div>`);
       clusterProspects.addLayer(marker);
     }
     const div = document.createElement("div"); div.className = "item-lista";
     div.innerHTML = `<div class="item-icon" style="background:rgba(245,158,11,0.15)">🎯</div>
       <div class="item-dados"><div class="item-nome">${p.nome}</div><div class="item-info">
-      <span class="badge prospect">Prospect</span> ${p.municipio ? " · " + p.municipio : ""} · 🏷️ ${p.cnae}</div></div>`;
+      <span class="badge prospect">Prospect</span> ${p.municipio ? " · " + p.municipio : ""} · 🏷️ ${p.cnpj}</div></div>`;
     div.onclick = () => { if (p.lat && p.lng) map.flyTo([p.lat, p.lng], 15); };
     listEl.appendChild(div);
   });
@@ -249,17 +241,26 @@ function renderizarRepresentantes() {
 
   representantesNaRegiao.forEach(rep => {
     if (rep.lat && rep.lng) {
+      // Ícone garantido, desenhado diretamente sem depender de arquivos externos
       const icone = L.divIcon({
-        html: `<div style="background:${rep.cor};width:22px;height:22px;border-radius:50%;border:3px solid white;box-shadow:0 2px 6px rgba(0,0,0,0.3);display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:700;color:white;">${rep.nome.charAt(0)}</div>`,
-        className: "", iconSize: [22, 22], iconAnchor: [11, 11]
+        html: `<div style="background:${rep.cor}; width:28px; height:28px; border-radius:50%; border:3px solid #ffffff; box-shadow:0 3px 8px rgba(0,0,0,0.5); display:flex; align-items:center; justify-content:center; font-size:14px;">👤</div>`,
+        className: "marcador-rep-custom", 
+        iconSize: [28, 28], 
+        iconAnchor: [14, 14]
       });
+      
       const marker = L.marker([rep.lat, rep.lng], { icon: icone });
-      marker.bindPopup(popupRepresentante(rep)); marker.addTo(map); marcadoresRep[rep.id] = marker;
+      marker.bindPopup(popupRepresentante(rep)); 
+      marker.addTo(map); 
+      marcadoresRep[rep.id] = marker;
+      
       const circulo = L.circle([rep.lat, rep.lng], {
-        radius: rep.raioKm * 1000, fillColor: rep.cor, fillOpacity: 0.05, color: rep.cor, weight: 1.2, dashArray: "5 4"
+        radius: rep.raioKm * 1000, fillColor: rep.cor, fillOpacity: 0.05, color: rep.cor, weight: 1.2, dashArray: "4 4"
       });
-      circulo.addTo(map); circulosRep[rep.id] = circulo;
+      circulo.addTo(map); 
+      circulosRep[rep.id] = circulo;
     }
+    
     const stats = calcularEstatisticasRep(rep);
     const div = document.createElement("div"); div.className = "rep-item";
     div.innerHTML = `<div class="rep-item-header"><div class="rep-mini-dot" style="background:${rep.cor}"></div>
@@ -274,7 +275,7 @@ function renderizarRepresentantes() {
 }
 
 // ------------------------------------------------------------
-// FUNÇÕES DE INTERATIVIDADE E FILTROS
+// INTERATIVIDADE E UTILITÁRIOS
 // ------------------------------------------------------------
 function abrirRepDetalhe(rep, stats) {
   document.getElementById("rep-detalhe").classList.add("open");
@@ -289,7 +290,7 @@ function abrirRepDetalhe(rep, stats) {
 function fecharRepDetalhe() { document.getElementById("rep-detalhe")?.classList.remove("open"); }
 window.fecharRepDetalhe = fecharRepDetalhe;
 
-function verRotaRep() { if (!window._atualRepParaRota) return; toast(`A gerar roteamento comercial para: ${window._atualRepParaRota.nome}`); }
+function verRotaRep() { if (!window._atualRepParaRota) return; toast(`Rota para: ${window._atualRepParaRota.nome}`); }
 window.verRotaRep = verRotaRep;
 
 function filtrarClientes() {
@@ -325,7 +326,7 @@ function atualizarPills() {
 
 function renderizarOportunidades() {
   const box = document.getElementById("oport-itens"); if (!box) return;
-  box.innerHTML = prospectsFiltradosRegiao.length > 0 ? `<div class="oport-item"><span class="oport-emoji">🎯</span><div>Existem <b>${prospectsFiltradosRegiao.length} novos prospects</b> na área visível a aguardar prospecção.</div></div>` : `<div class="oport-item">Nenhuma oportunidade pendente encontrada.</div>`;
+  box.innerHTML = prospectsFiltradosRegiao.length > 0 ? `<div class="oport-item"><span class="oport-emoji">🎯</span><div>Existem <b>${prospectsFiltradosRegiao.length} novos prospects</b> na área visível.</div></div>` : `<div class="oport-item">Nenhuma oportunidade pendente encontrada.</div>`;
 }
 
 function switchAba(abaNome, btn) {
@@ -342,9 +343,6 @@ function togglePainel() {
 }
 window.togglePainel = togglePainel;
 
-// ------------------------------------------------------------
-// UTILITÁRIOS E CÁLCULOS
-// ------------------------------------------------------------
 function calcularEstatisticasRep(rep) {
   if (!rep.lat || !rep.lng) return { clientesAtivos: 0, clientesInativos: 0, prospectsNoRaio: 0 };
   const raioMetros = rep.raioKm * 1000; let ativos = 0, inativos = 0, prospects = 0;
@@ -359,7 +357,7 @@ function popupCliente(c) {
 
 function popupRepresentante(rep) {
   const stats = calcularEstatisticasRep(rep);
-  return `<div class="popup-nome">${rep.nome}</div><div class="popup-info"><b>Base:</b> ${rep.municipio || "—"}<br><b>Área:</b> ${rep.raioKm} km<hr style="margin:5px 0;border:none;border-top:1px solid #ddd;"><b>Atuação:</b><br>✅ Ativos: ${stats.clientesAtivos}<br>❌ Inativos: ${stats.clientesInativos}<br>🎯 Prospects: ${stats.prospectsNoRaio}</div>`;
+  return `<div class="popup-nome">${rep.nome}</div><div class="popup-info"><b>Base Comercial:</b> ${rep.municipio || "—"}<br><b>Raio:</b> ${rep.raioKm} km<hr style="margin:6px 0; border:none; border-top:1px solid #ddd;"><b>Dados na Área:</b><br>✅ Ativos: ${stats.clientesAtivos}<br>❌ Inativos: ${stats.clientesInativos}<br>🎯 Prospects: ${stats.prospectsNoRaio}</div>`;
 }
 
 function onMapClick(e) { window._pendingLat = e.latlng.lat; window._pendingLng = e.latlng.lng; }
@@ -384,17 +382,6 @@ function distanciaKm(lat1, lng1, lat2, lng2) {
   const a = Math.sin(dLat/2)**2 + Math.cos(lat1 * Math.PI/180) * Math.cos(lat2 * Math.PI/180) * Math.sin(dLng/2)**2;
   return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
 }
-
-function exportarCSV() {
-  if (!clientesFiltradosRegiao.length) { toast("Nenhum dado filtrado."); return; }
-  const linhas = clientesFiltradosRegiao.map(c => [c.cnpj, c.nome, c.municipio, c.status, c.cnae, c.representante].map(v => `"${String(v || "").replace(/"/g, '""')}"`).join(","));
-  const csv = [["CNPJ","Nome","Município","Status","CNAE","Representante"].join(","), ...linhas].join("\n");
-  const a = document.createElement("a"); 
-  a.href = URL.createObjectURL(new Blob(["\uFEFF" + csv], { type: "text/csv;charset=utf-8;" })); 
-  a.download = "clientes_filtrados.csv"; 
-  a.click();
-}
-window.exportarCSV = exportarCSV;
 
 function criarIconeCluster(cluster) {
   const count = cluster.getChildCount(), size = count < 100 ? 34 : 44;
