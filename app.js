@@ -1,5 +1,5 @@
 // ============================================================
-// MAPA DE CLIENTES — app.js (Versão Corrigida e Harmonizada)
+// MAPA DE CLIENTES — app.js (Versão Ultra-Resiliente)
 // ============================================================
 
 // Link da implantação do Apps Script
@@ -54,7 +54,7 @@ function inicializarMapa() {
   map.on("click", onMapClick);
 }
 
-// ── CORREÇÃO DO POP-UP INICIAL DE BUSCA ──
+// POP-UP INICIAL DE BUSCA
 async function iniciarBusca() {
   const cidadeInput = document.getElementById('input-busca-welcome');
   if (!cidadeInput) return;
@@ -94,14 +94,12 @@ async function iniciarBusca() {
         zoomAlvo = 14; 
       }
 
-      // Transiciona o mapa para a região encontrada
       map.flyTo([lat, lon], zoomAlvo, { animate: true, duration: 1.5 });
       cidadeInput.blur();
       
       const nomeExibicao = data[0].display_name.split(',')[0];
       toast(`Focado em: ${nomeExibicao}`);
 
-      // Oculta a tela de Boas-Vindas e exibe os controles laterais do HTML
       document.getElementById("welcome-overlay")?.classList.add("hidden");
       document.getElementById("painel")?.classList.add("open");
       document.getElementById("btn-toggle")?.classList.add("visible");
@@ -114,7 +112,6 @@ async function iniciarBusca() {
         document.getElementById("regiao-label-top").textContent = nomeExibicao;
       }
 
-      // Carrega os dados geográficos restritos a essa área
       await carregarDadosDaRegiao(limitesRegiaoAtual);
 
     } else {
@@ -127,9 +124,8 @@ async function iniciarBusca() {
     toast("Falha na conexão com o servidor de mapas.");
   }
 }
-window.iniciarBusca = iniciarBusca; // Vincula ao escopo global para o HTML encontrar
+window.iniciarBusca = iniciarBusca;
 
-// Retornar para a tela de nova busca
 function novaBusca() {
   document.getElementById("welcome-overlay")?.classList.remove("hidden");
   document.getElementById("painel")?.classList.remove("open");
@@ -144,9 +140,9 @@ function novaBusca() {
 }
 window.novaBusca = novaBusca;
 
-// FILTRAGEM GEOGRÁFICA EXCLUSIVA
+// FILTRAGEM E TRATAMENTO DE DADOS COM RESILIÊNCIA DE COLUNAS
 async function carregarDadosDaRegiao(bounds) {
-  mostrarLoading(true, "Acessando planilha e cruzando dados comerciais...");
+  mostrarLoading(true, "Acessando planilha e padronizando dados comerciais...");
 
   try {
     const [resClientes, resProspects, resRepresentantes] = await Promise.all([
@@ -155,11 +151,47 @@ async function carregarDadosDaRegiao(bounds) {
       chamarAPI({ action: "representantes" })
     ]);
 
-    const brutoClientes = resClientes.clientes || [];
-    const brutoProspects = resProspects.prospects || [];
-    representantes = resRepresentantes.representantes || [];
+    // 1. Normalização dos Clientes
+    const brutoClientes = (resClientes.clientes || []).map(c => {
+      c.lat = c.lat || c.latitude || c.Latitude || c.LAT;
+      c.lng = c.lng || c.longitude || c.Longitude || c.lng || c.LNG || c.long;
+      return c;
+    });
 
-    // Filtra estritamente pelo limite geométrico visível
+    // 2. Normalização dos Prospects (Trata variações de cabeçalhos das planilhas)
+    const brutoProspects = (resProspects.prospects || []).map(p => {
+      let lat = p.lat || p.latitude || p.Latitude || p.LAT;
+      let lng = p.lng || p.longitude || p.Longitude || p.lng || p.LNG || p.long;
+      return {
+        ...p,
+        nome: p.nome || p.Nome || p["Razão Social"] || p.razaosocial || p.cnpj || "Sem nome",
+        municipio: p.municipio || p.Municipio || p.Cidade || p.cidade || "—",
+        endereco: p.endereco || p.Endereco || p.Logradouro || "—",
+        cnae: p.cnae || p.Cnae || p.CNAE || "—",
+        lat: lat ? parseFloat(lat) : null,
+        lng: lng ? parseFloat(lng) : null
+      };
+    });
+
+    // 3. Normalização dos Representantes (Trata variações de cabeçalhos das planilhas)
+    representantes = (resRepresentantes.representantes || []).map(r => {
+      let lat = r.lat || r.latitude || r.Latitude || r.LAT;
+      let lng = r.lng || r.longitude || r.Longitude || r.lng || r.LNG || r.long;
+      let raioKm = r.raioKm || r.raiokm || r.Raio || r["Raio (Km)"] || r["raio"] || 50;
+      let nome = r.nome || r.Nome || "Representante Oculto";
+      return {
+        ...r,
+        id: r.id || r.Id || nome,
+        nome: nome,
+        municipio: r.municipio || r.Municipio || r.Cidade || r.cidade || "—",
+        cor: r.cor || r.Cor || "#7c3aed",
+        raioKm: parseFloat(raioKm),
+        lat: lat ? parseFloat(lat) : null,
+        lng: lng ? parseFloat(lng) : null
+      };
+    });
+
+    // Filtragem geométrica estrita baseada na área visual mapeada
     clientesFiltradosRegiao = brutoClientes.filter(c => c.lat && c.lng && bounds.contains(L.latLng(c.lat, c.lng)));
     prospectsFiltradosRegiao = brutoProspects.filter(p => p.lat && p.lng && bounds.contains(L.latLng(p.lat, p.lng)));
 
@@ -172,6 +204,8 @@ async function carregarDadosDaRegiao(bounds) {
   } catch (e) {
     console.error(e);
     toast("Erro ao carregar dados regionais: " + e.message);
+  } catch {
+    mostrarLoading(false);
   } finally {
     mostrarLoading(false);
   }
@@ -236,10 +270,10 @@ function renderizarProspects(lista) {
       marker.bindPopup(`
         <div class="popup-nome">${p.nome || "Prospect Potencial"}</div>
         <div class="popup-info">
-          <b>CNPJ:</b> ${p.cnpj}<br>
-          <b>CNAE:</b> ${p.cnae}<br>
-          <b>Município:</b> ${p.municipio}<br>
-          <b>Endereço:</b> ${p.endereco}
+          <b>CNPJ:</b> ${p.cnpj || "—"}<br>
+          <b>CNAE:</b> ${p.cnae || "—"}<br>
+          <b>Município:</b> ${p.municipio || "—"}<br>
+          <b>Endereço:</b> ${p.endereco || "—"}
         </div>
       `);
       clusterProspects.addLayer(marker);
@@ -250,7 +284,7 @@ function renderizarProspects(lista) {
     div.innerHTML = `
       <div class="item-icon" style="background:rgba(245,158,11,0.15)">🎯</div>
       <div class="item-dados">
-        <div class="item-nome">${p.nome || p.cnpj}</div>
+        <div class="item-nome">${p.nome}</div>
         <div class="item-info">
           <span class="badge prospect">Prospect</span>
           ${p.municipio ? " · " + p.municipio : ""}
@@ -277,6 +311,7 @@ function renderizarRepresentantes() {
   marcadoresRep = {};
   circulosRep = {};
 
+  // Filtra representantes que estão contidos na área atual ou cujo raio intercepta a visão
   const representantesNaRegiao = representantes.filter(r => {
     if (!limitesRegiaoAtual) return true;
     return r.lat && r.lng ? limitesRegiaoAtual.contains(L.latLng(r.lat, r.lng)) : false;
@@ -285,7 +320,7 @@ function renderizarRepresentantes() {
   representantesNaRegiao.forEach(rep => {
     if (rep.lat && rep.lng) {
       const icone = L.divIcon({
-        html: `<div style="background:${rep.cor || '#7c3aed'};width:22px;height:22px;border-radius:50%;border:3px solid white;box-shadow:0 2px 6px rgba(0,0,0,0.3);display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:700;color:white;">${rep.nome.charAt(0)}</div>`,
+        html: `<div style="background:${rep.cor};width:22px;height:22px;border-radius:50%;border:3px solid white;box-shadow:0 2px 6px rgba(0,0,0,0.3);display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:700;color:white;">${rep.nome.charAt(0)}</div>`,
         className: "", iconSize: [22, 22], iconAnchor: [11, 11]
       });
 
@@ -295,8 +330,8 @@ function renderizarRepresentantes() {
       marcadoresRep[rep.id] = marker;
 
       const circulo = L.circle([rep.lat, rep.lng], {
-        radius: (rep.raioKm || 50) * 1000,
-        fillColor: rep.cor || '#7c3aed', fillOpacity: 0.05, color: rep.cor || '#7c3aed', weight: 1.2, dashArray: "5 4"
+        radius: rep.raioKm * 1000,
+        fillColor: rep.cor, fillOpacity: 0.05, color: rep.cor, weight: 1.2, dashArray: "5 4"
       });
       circulo.addTo(map);
       circulosRep[rep.id] = circulo;
@@ -307,10 +342,10 @@ function renderizarRepresentantes() {
     div.className = "rep-item";
     div.innerHTML = `
       <div class="rep-item-header">
-        <div class="rep-mini-dot" style="background:${rep.cor || '#7c3aed'}"></div>
+        <div class="rep-mini-dot" style="background:${rep.cor}"></div>
         <span class="rep-item-nome">${rep.nome}</span>
       </div>
-      <div class="rep-item-info">${rep.municipio ? "📍 " + rep.municipio + " · " : ""}⭕ Raio: ${rep.raioKm || 50} km</div>
+      <div class="rep-item-info">${rep.municipio ? "📍 " + rep.municipio + " · " : ""}⭕ Raio: ${rep.raioKm} km</div>
       <div class="rep-item-stats">
         <div class="rep-mini-stat" style="color:var(--ativo)"><strong>${stats.clientesAtivos}</strong> Ativos</div>
         <div class="rep-mini-stat" style="color:var(--inativo)"><strong>${stats.clientesInativos}</strong> Inat.</div>
@@ -330,14 +365,13 @@ function renderizarRepresentantes() {
   }
 }
 
-// Detalhes inferiores do Representante
 function abrirRepDetalhe(rep, stats) {
   document.getElementById("rep-detalhe").classList.add("open");
   document.getElementById("rep-det-nome").textContent = rep.nome;
   document.getElementById("rd-ativos").textContent = stats.clientesAtivos;
   document.getElementById("rd-inativos").textContent = stats.clientesInativos;
   document.getElementById("rd-prospects").textContent = stats.prospectsNoRaio;
-  document.getElementById("rd-raio").textContent = `${rep.raioKm || 50}km`;
+  document.getElementById("rd-raio").textContent = `${rep.raioKm}km`;
   window._atualRepParaRota = rep;
 }
 
@@ -352,7 +386,7 @@ function verRotaRep() {
 }
 window.verRotaRep = verRotaRep;
 
-// FILTROS EM TEMPO REAL (Chamados via HTML)
+// FILTROS EM TEMPO REAL
 function filtrarClientes() {
   const termo = document.getElementById("filtro-cliente").value.toLowerCase();
   const filtrados = clientesFiltradosRegiao.filter(c => {
@@ -380,14 +414,12 @@ function filtrarPorStatus(status) {
   renderizarClientes(filtrados);
   switchAba('clientes', document.querySelector('[data-aba=clientes]'));
   
-  // Destaca o card clicado visualmente
   document.querySelectorAll('.stat-card').forEach(c => c.classList.remove('active-filter'));
   if(status === 'ativo') document.querySelectorAll('.stat-card')[0].classList.add('active-filter');
   if(status === 'inativo') document.querySelectorAll('.stat-card')[1].classList.add('active-filter');
 }
 window.filtrarPorStatus = filtrarPorStatus;
 
-// ATUALIZAÇÃO DE STATS E PILLS
 function atualizarPills() {
   const total = clientesFiltradosRegiao.length;
   const ativos = clientesFiltradosRegiao.filter(c => c.status === "ativo").length;
@@ -423,7 +455,6 @@ function renderizarOportunidades() {
   }
 }
 
-// NAVEGAÇÃO DE ABAS
 function switchAba(abaNome, btn) {
   document.querySelectorAll(".aba-conteudo").forEach(p => p.classList.remove("active"));
   document.querySelectorAll(".aba-btn").forEach(b => b.classList.remove("active"));
@@ -444,10 +475,9 @@ function togglePainel() {
 }
 window.togglePainel = togglePainel;
 
-// AUXILIARES GEOGRÁFICOS E CÁLCULOS
 function calcularEstatisticasRep(rep) {
   if (!rep.lat || !rep.lng) return { clientesAtivos: 0, clientesInativos: 0, prospectsNoRaio: 0 };
-  const raioMetros = (rep.raioKm || 50) * 1000;
+  const raioMetros = rep.raioKm * 1000;
   let ativos = 0, inativos = 0, prospects = 0;
 
   clientesFiltradosRegiao.forEach(c => {
@@ -464,7 +494,7 @@ function calcularEstatisticasRep(rep) {
 }
 
 function popupCliente(c) {
-  return `<div class="popup-nome">${c.nome || "Sem nome"}</div>
+  return `<div class="popup-nome">${c.nome}</div>
     <div class="popup-info">
       <b>CNPJ:</b> ${c.cnpj || "—"}<br><b>Status:</b> <span class="badge ${c.status}">${c.status}</span><br>
       <b>Endereço:</b> ${c.endereco || "—"} (${c.municipio || "—"})<br>
@@ -476,7 +506,7 @@ function popupRepresentante(rep) {
   const stats = calcularEstatisticasRep(rep);
   return `<div class="popup-nome">${rep.nome}</div>
     <div class="popup-info">
-      <b>Base:</b> ${rep.municipio || "—"}<br><b>Área operacional:</b> ${rep.raioKm || 50} km<br>
+      <b>Base:</b> ${rep.municipio || "—"}<br><b>Área operacional:</b> ${rep.raioKm} km<br>
       <hr>
       <b>Resumo de Atuação:</b><br>
       ✅ Clientes Ativos no Raio: ${stats.clientesAtivos}<br>
@@ -512,6 +542,20 @@ function distanciaKm(lat1, lng1, lat2, lng2) {
   return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
 }
 
+function exportarCSV() {
+  if (!clientesFiltradosRegiao.length) { toast("Nenhum dado filtrado."); return; }
+  const cabecalho = ["CNPJ","Nome","Município","Status","CNAE","Representante"];
+  const linhas = clientesFiltradosRegiao.map(c => [c.cnpj, c.nome, c.municipio, c.status, c.cnae, c.representante].map(v => `"${String(v || "").replace(/"/g, '""')}"`).join(","));
+  const csv = [cabecalho.join(","), ...linhas].join("\n");
+  const blob = new Blob(["\uFEFF" + csv], { type: "text/csv;charset=utf-8;" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = "clientes_filtrados.csv";
+  a.click();
+}
+window.exportarCSV = exportarCSV;
+
 function criarIconeCluster(cluster) {
   const count = cluster.getChildCount();
   const size = count < 100 ? 34 : 44;
@@ -521,7 +565,6 @@ function criarIconeCluster(cluster) {
   });
 }
 
-// ASSINATURAS API COMPATÍVEIS
 async function chamarAPI(params) {
   if (!API_URL) return { clientes:[], prospects:[], representantes:[] };
   const url = new URL(API_URL);
