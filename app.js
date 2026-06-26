@@ -1,5 +1,5 @@
 // ============================================================
-// MAPA DE CLIENTES — app.js (Versão Ultra-Resiliente)
+// MAPA DE CLIENTES — app.js (Versão Totalmente Sincronizada)
 // ============================================================
 
 // Link da implantação do Apps Script
@@ -16,7 +16,6 @@ let prospectsFiltradosRegiao = [];
 
 let marcadoresRep = {};
 let circulosRep = {};
-let sidebarAberta = false;
 let limitesRegiaoAtual = null;
 
 // INICIALIZAÇÃO
@@ -54,11 +53,10 @@ function inicializarMapa() {
   map.on("click", onMapClick);
 }
 
-// POP-UP INICIAL DE BUSCA
+// FUNÇÃO DE BUSCA PRINCIPAL (Chamada pelo botão e pelo Enter no HTML)
 async function iniciarBusca() {
   const cidadeInput = document.getElementById('input-busca-welcome');
   if (!cidadeInput) return;
-  
   const cidadeNome = cidadeInput.value.trim();
 
   if (!cidadeNome) {
@@ -100,6 +98,7 @@ async function iniciarBusca() {
       const nomeExibicao = data[0].display_name.split(',')[0];
       toast(`Focado em: ${nomeExibicao}`);
 
+      // Esconde a tela de Boas-Vindas e ativa a interface do Mapa
       document.getElementById("welcome-overlay")?.classList.add("hidden");
       document.getElementById("painel")?.classList.add("open");
       document.getElementById("btn-toggle")?.classList.add("visible");
@@ -126,6 +125,7 @@ async function iniciarBusca() {
 }
 window.iniciarBusca = iniciarBusca;
 
+// REINICIAR BUSCA (Limpa e traz o painel inicial de volta)
 function novaBusca() {
   document.getElementById("welcome-overlay")?.classList.remove("hidden");
   document.getElementById("painel")?.classList.remove("open");
@@ -140,7 +140,7 @@ function novaBusca() {
 }
 window.novaBusca = novaBusca;
 
-// FILTRAGEM E TRATAMENTO DE DADOS COM RESILIÊNCIA DE COLUNAS
+// CARREGAR E FILTRAR VIA API
 async function carregarDadosDaRegiao(bounds) {
   mostrarLoading(true, "Acessando planilha e padronizando dados comerciais...");
 
@@ -151,14 +151,14 @@ async function carregarDadosDaRegiao(bounds) {
       chamarAPI({ action: "representantes" })
     ]);
 
-    // 1. Normalização dos Clientes
+    // Padronização e tolerância de colunas para Clientes
     const brutoClientes = (resClientes.clientes || []).map(c => {
       c.lat = c.lat || c.latitude || c.Latitude || c.LAT;
       c.lng = c.lng || c.longitude || c.Longitude || c.lng || c.LNG || c.long;
       return c;
     });
 
-    // 2. Normalização dos Prospects (Trata variações de cabeçalhos das planilhas)
+    // Padronização para Prospects
     const brutoProspects = (resProspects.prospects || []).map(p => {
       let lat = p.lat || p.latitude || p.Latitude || p.LAT;
       let lng = p.lng || p.longitude || p.Longitude || p.lng || p.LNG || p.long;
@@ -173,7 +173,7 @@ async function carregarDadosDaRegiao(bounds) {
       };
     });
 
-    // 3. Normalização dos Representantes (Trata variações de cabeçalhos das planilhas)
+    // Padronização para Representantes
     representantes = (resRepresentantes.representantes || []).map(r => {
       let lat = r.lat || r.latitude || r.Latitude || r.LAT;
       let lng = r.lng || r.longitude || r.Longitude || r.lng || r.LNG || r.long;
@@ -191,7 +191,7 @@ async function carregarDadosDaRegiao(bounds) {
       };
     });
 
-    // Filtragem geométrica estrita baseada na área visual mapeada
+    // Filtros geométricos estritos
     clientesFiltradosRegiao = brutoClientes.filter(c => c.lat && c.lng && bounds.contains(L.latLng(c.lat, c.lng)));
     prospectsFiltradosRegiao = brutoProspects.filter(p => p.lat && p.lng && bounds.contains(L.latLng(p.lat, p.lng)));
 
@@ -204,8 +204,6 @@ async function carregarDadosDaRegiao(bounds) {
   } catch (e) {
     console.error(e);
     toast("Erro ao carregar dados regionais: " + e.message);
-  } catch {
-    mostrarLoading(false);
   } finally {
     mostrarLoading(false);
   }
@@ -311,7 +309,6 @@ function renderizarRepresentantes() {
   marcadoresRep = {};
   circulosRep = {};
 
-  // Filtra representantes que estão contidos na área atual ou cujo raio intercepta a visão
   const representantesNaRegiao = representantes.filter(r => {
     if (!limitesRegiaoAtual) return true;
     return r.lat && r.lng ? limitesRegiaoAtual.contains(L.latLng(r.lat, r.lng)) : false;
@@ -386,7 +383,7 @@ function verRotaRep() {
 }
 window.verRotaRep = verRotaRep;
 
-// FILTROS EM TEMPO REAL
+// FILTROS COM DIGITAÇÃO EM TEMPO REAL
 function filtrarClientes() {
   const termo = document.getElementById("filtro-cliente").value.toLowerCase();
   const filtrados = clientesFiltradosRegiao.filter(c => {
@@ -420,6 +417,7 @@ function filtrarPorStatus(status) {
 }
 window.filtrarPorStatus = filtrarPorStatus;
 
+// ATUALIZAÇÃO DOS CARD DE TOTALIZADORES SUPERIORES
 function atualizarPills() {
   const total = clientesFiltradosRegiao.length;
   const ativos = clientesFiltradosRegiao.filter(c => c.status === "ativo").length;
@@ -494,7 +492,7 @@ function calcularEstatisticasRep(rep) {
 }
 
 function popupCliente(c) {
-  return `<div class="popup-nome">${c.nome}</div>
+  return `<div class="popup-nome">${c.nome || "Sem nome"}</div>
     <div class="popup-info">
       <b>CNPJ:</b> ${c.cnpj || "—"}<br><b>Status:</b> <span class="badge ${c.status}">${c.status}</span><br>
       <b>Endereço:</b> ${c.endereco || "—"} (${c.municipio || "—"})<br>
@@ -507,7 +505,7 @@ function popupRepresentante(rep) {
   return `<div class="popup-nome">${rep.nome}</div>
     <div class="popup-info">
       <b>Base:</b> ${rep.municipio || "—"}<br><b>Área operacional:</b> ${rep.raioKm} km<br>
-      <hr>
+      <hr style="margin:5px 0; border:none; border-top:1px solid #ddd;">
       <b>Resumo de Atuação:</b><br>
       ✅ Clientes Ativos no Raio: ${stats.clientesAtivos}<br>
       ❌ Clientes Inativos no Raio: ${stats.clientesInativos}<br>
