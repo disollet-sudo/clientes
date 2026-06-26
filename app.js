@@ -1,8 +1,8 @@
 // ============================================================
-// MAPA DE CLIENTES — app.js (Versão Corrigida e Atualizada)
+// MAPA DE CLIENTES — app.js (Versão Corrigida e Harmonizada)
 // ============================================================
 
-// ⚠️ ATENÇÃO: Cole aqui o link da sua NOVA IMPLANTAÇÃO do Apps Script
+// Link da implantação do Apps Script
 const API_URL = "https://script.google.com/macros/s/AKfycbxh8ikW_2hvTdz2UVFm2ctxbE2iec5ICHYb3MgzFB_Cd3FnBOLA2JAsfgd2onU9FMD48g/exec";
 
 // ESTADO GLOBAL
@@ -16,13 +16,13 @@ let prospectsFiltradosRegiao = [];
 
 let marcadoresRep = {};
 let circulosRep = {};
-let sidebarAberta = true;
+let sidebarAberta = false;
 let limitesRegiaoAtual = null;
 
 // INICIALIZAÇÃO
 document.addEventListener("DOMContentLoaded", () => {
   inicializarMapa();
-  mostrarLoading(false); // Aguarda o comando de busca no topo
+  mostrarLoading(false);
 });
 
 function inicializarMapa() {
@@ -54,9 +54,11 @@ function inicializarMapa() {
   map.on("click", onMapClick);
 }
 
-// BUSCA E AJUSTE DE DISTÂNCIA DINÂMICO
-async function buscarEIrParaCidade() {
-  const cidadeInput = document.getElementById('input-busca-cidade');
+// ── CORREÇÃO DO POP-UP INICIAL DE BUSCA ──
+async function iniciarBusca() {
+  const cidadeInput = document.getElementById('input-busca-welcome');
+  if (!cidadeInput) return;
+  
   const cidadeNome = cidadeInput.value.trim();
 
   if (!cidadeNome) {
@@ -81,25 +83,38 @@ async function buscarEIrParaCidade() {
         L.latLng(parseFloat(bbox[1]), parseFloat(bbox[3]))
       );
 
-      // CORREÇÃO DE DISTÂNCIA ("Ficou um pouco longe"):
       let zoomAlvo = 12; 
       const localidadeTipo = data[0].type || "";
       const classeTipo = data[0].class || "";
       const nomeBaixo = data[0].display_name.toLowerCase();
 
-      // Se for um estado completo (Ex: Rio Grande do Sul), usa zoom 8 (ideal para ver o RS de perto e inteiro)
       if (localidadeTipo === "state" || nomeBaixo.includes("estado") || (classeTipo === "boundary" && data[0].importance > 0.65)) {
         zoomAlvo = 8; 
       } else if (localidadeTipo === "suburb" || localidadeTipo === "neighborhood") {
         zoomAlvo = 14; 
       }
 
+      // Transiciona o mapa para a região encontrada
       map.flyTo([lat, lon], zoomAlvo, { animate: true, duration: 1.5 });
       cidadeInput.blur();
       
-      toast(`Focado em: ${data[0].display_name.split(',')[0]}`);
+      const nomeExibicao = data[0].display_name.split(',')[0];
+      toast(`Focado em: ${nomeExibicao}`);
 
-      // Executa a carga puxando EXCLUSIVAMENTE os dados de dentro desse quadrado geométrico
+      // Oculta a tela de Boas-Vindas e exibe os controles laterais do HTML
+      document.getElementById("welcome-overlay")?.classList.add("hidden");
+      document.getElementById("painel")?.classList.add("open");
+      document.getElementById("btn-toggle")?.classList.add("visible");
+      document.getElementById("btn-map-busca")?.classList.add("visible");
+      
+      if (document.getElementById("painel-regiao-nome")) {
+        document.getElementById("painel-regiao-nome").textContent = nomeExibicao;
+      }
+      if (document.getElementById("regiao-label-top")) {
+        document.getElementById("regiao-label-top").textContent = nomeExibicao;
+      }
+
+      // Carrega os dados geográficos restritos a essa área
       await carregarDadosDaRegiao(limitesRegiaoAtual);
 
     } else {
@@ -112,10 +127,26 @@ async function buscarEIrParaCidade() {
     toast("Falha na conexão com o servidor de mapas.");
   }
 }
+window.iniciarBusca = iniciarBusca; // Vincula ao escopo global para o HTML encontrar
 
-// FILTRAGEM GEOGRÁFICA EXCLUSIVA (Clientes + Prospects)
+// Retornar para a tela de nova busca
+function novaBusca() {
+  document.getElementById("welcome-overlay")?.classList.remove("hidden");
+  document.getElementById("painel")?.classList.remove("open");
+  document.getElementById("btn-toggle")?.classList.remove("visible");
+  document.getElementById("btn-map-busca")?.classList.remove("visible");
+  fecharRepDetalhe();
+  const inputWelcome = document.getElementById('input-busca-welcome');
+  if (inputWelcome) {
+    inputWelcome.value = "";
+    inputWelcome.focus();
+  }
+}
+window.novaBusca = novaBusca;
+
+// FILTRAGEM GEOGRÁFICA EXCLUSIVA
 async function carregarDadosDaRegiao(bounds) {
-  mostrarLoading(true, "Acessando planilha e cruzando dados de Clientes e Prospects...");
+  mostrarLoading(true, "Acessando planilha e cruzando dados comerciais...");
 
   try {
     const [resClientes, resProspects, resRepresentantes] = await Promise.all([
@@ -128,15 +159,15 @@ async function carregarDadosDaRegiao(bounds) {
     const brutoProspects = resProspects.prospects || [];
     representantes = resRepresentantes.representantes || [];
 
-    // Limita estritamente ao quadrado geográfico selecionado
+    // Filtra estritamente pelo limite geométrico visível
     clientesFiltradosRegiao = brutoClientes.filter(c => c.lat && c.lng && bounds.contains(L.latLng(c.lat, c.lng)));
     prospectsFiltradosRegiao = brutoProspects.filter(p => p.lat && p.lng && bounds.contains(L.latLng(p.lat, p.lng)));
 
     renderizarClientes(clientesFiltradosRegiao);
     renderizarProspects(prospectsFiltradosRegiao);
     renderizarRepresentantes(); 
-    
     atualizarPills();
+    renderizarOportunidades();
 
   } catch (e) {
     console.error(e);
@@ -149,6 +180,7 @@ async function carregarDadosDaRegiao(bounds) {
 function renderizarClientes(lista) {
   clusterClientes.clearLayers();
   const listEl = document.getElementById("lista-clientes");
+  if (!listEl) return;
   listEl.innerHTML = "";
 
   lista.forEach(c => {
@@ -165,35 +197,39 @@ function renderizarClientes(lista) {
     }
 
     const div = document.createElement("div");
-    div.className = "cliente-item";
+    div.className = "item-lista";
     div.innerHTML = `
-      <div class="cliente-nome">${c.nome || c.cnpj}</div>
-      <div class="cliente-info">
-        <span class="badge ${c.status}">${c.status || "—"}</span>
-        ${c.municipio ? " · " + c.municipio : ""}
-        ${c.representante ? " · 💼 " + c.representante : ""}
+      <div class="item-icon" style="background:${c.status === 'ativo' ? 'rgba(34,197,94,0.15)' : 'rgba(239,68,68,0.15)'}">🏢</div>
+      <div class="item-dados">
+        <div class="item-nome">${c.nome || c.cnpj}</div>
+        <div class="item-info">
+          <span class="badge ${c.status}">${c.status || "—"}</span>
+          ${c.municipio ? " · " + c.municipio : ""}
+          ${c.representante ? " · 💼 " + c.representante : ""}
+        </div>
       </div>
     `;
     div.onclick = () => { if (c.lat && c.lng) map.flyTo([c.lat, c.lng], 15); };
     listEl.appendChild(div);
   });
 
-  if(lista.length === 0) {
-    listEl.innerHTML = `<div style="padding:20px;text-align:center;color:#888;font-size:12px;">Nenhum cliente mapeado nesta área.</div>`;
+  if (lista.length === 0) {
+    listEl.innerHTML = `<div class="empty-msg">Nenhum cliente mapeado nesta área.</div>`;
   }
 }
 
 function renderizarProspects(lista) {
   clusterProspects.clearLayers();
   const listEl = document.getElementById("lista-prospects");
+  if (!listEl) return;
   listEl.innerHTML = "";
 
   lista.forEach(p => {
     if (p.lat && p.lng) {
       const marker = L.circleMarker([p.lat, p.lng], {
         radius: 6,
-        fillColor: "#3b82f6",
-        color: "#1d4ed8",
+        fillColor: "#f59e0b",
+        color: "#d97706",
         weight: 1.5,
         fillOpacity: 0.8
       });
@@ -210,13 +246,16 @@ function renderizarProspects(lista) {
     }
 
     const div = document.createElement("div");
-    div.className = "cliente-item";
+    div.className = "item-lista";
     div.innerHTML = `
-      <div class="cliente-nome">${p.nome || p.cnpj}</div>
-      <div class="cliente-info">
-        <span class="badge prospect">Prospect</span>
-        ${p.municipio ? " · " + p.municipio : ""}
-        · 🏷️ ${p.cnae}
+      <div class="item-icon" style="background:rgba(245,158,11,0.15)">🎯</div>
+      <div class="item-dados">
+        <div class="item-nome">${p.nome || p.cnpj}</div>
+        <div class="item-info">
+          <span class="badge prospect">Prospect</span>
+          ${p.municipio ? " · " + p.municipio : ""}
+          · 🏷️ ${p.cnae}
+        </div>
       </div>
     `;
     div.onclick = () => { if (p.lat && p.lng) map.flyTo([p.lat, p.lng], 15); };
@@ -224,12 +263,13 @@ function renderizarProspects(lista) {
   });
 
   if (lista.length === 0) {
-    listEl.innerHTML = `<div style="padding:20px;text-align:center;color:#888;font-size:12px">Nenhum prospect mapeado nesta área.</div>`;
+    listEl.innerHTML = `<div class="empty-msg">Nenhum prospect mapeado nesta área.</div>`;
   }
 }
 
 function renderizarRepresentantes() {
-  const listEl = document.getElementById("rep-lista");
+  const listEl = document.getElementById("lista-reps");
+  if (!listEl) return;
   listEl.innerHTML = "";
 
   Object.values(marcadoresRep).forEach(m => map.removeLayer(m));
@@ -238,14 +278,14 @@ function renderizarRepresentantes() {
   circulosRep = {};
 
   const representantesNaRegiao = representantes.filter(r => {
-    if(!limitesRegiaoAtual) return true;
+    if (!limitesRegiaoAtual) return true;
     return r.lat && r.lng ? limitesRegiaoAtual.contains(L.latLng(r.lat, r.lng)) : false;
   });
 
   representantesNaRegiao.forEach(rep => {
     if (rep.lat && rep.lng) {
       const icone = L.divIcon({
-        html: `<div style="background:${rep.cor};width:22px;height:22px;border-radius:50%;border:3px solid white;box-shadow:0 2px 6px rgba(0,0,0,0.3);display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:700;color:white;">${rep.nome.charAt(0)}</div>`,
+        html: `<div style="background:${rep.cor || '#7c3aed'};width:22px;height:22px;border-radius:50%;border:3px solid white;box-shadow:0 2px 6px rgba(0,0,0,0.3);display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:700;color:white;">${rep.nome.charAt(0)}</div>`,
         className: "", iconSize: [22, 22], iconAnchor: [11, 11]
       });
 
@@ -255,67 +295,159 @@ function renderizarRepresentantes() {
       marcadoresRep[rep.id] = marker;
 
       const circulo = L.circle([rep.lat, rep.lng], {
-        radius: rep.raioKm * 1000,
-        fillColor: rep.cor, fillOpacity: 0.05, color: rep.cor, weight: 1.2, dashArray: "5 4"
+        radius: (rep.raioKm || 50) * 1000,
+        fillColor: rep.cor || '#7c3aed', fillOpacity: 0.05, color: rep.cor || '#7c3aed', weight: 1.2, dashArray: "5 4"
       });
       circulo.addTo(map);
       circulosRep[rep.id] = circulo;
     }
 
     const stats = calcularEstatisticasRep(rep);
-    const card = document.createElement("div");
-    card.className = "rep-card";
-    card.innerHTML = `
-      <div class="rep-card-header">
-        <div class="rep-dot" style="background:${rep.cor}"></div>
-        <span class="rep-nome">${rep.nome}</span>
-        <div class="rep-actions">
-          <button class="btn-sm" onclick="editarRep('${rep.id}')">✏️</button>
-          <button class="btn-sm danger" onclick="deletarRep('${rep.id}')">🗑</button>
-        </div>
+    const div = document.createElement("div");
+    div.className = "rep-item";
+    div.innerHTML = `
+      <div class="rep-item-header">
+        <div class="rep-mini-dot" style="background:${rep.cor || '#7c3aed'}"></div>
+        <span class="rep-item-nome">${rep.nome}</span>
       </div>
-      <div class="rep-info">${rep.municipio ? "📍 " + rep.municipio + " · " : ""}⭕ Raio: ${rep.raioKm} km</div>
-      <div class="rep-stats">
-        <div class="rep-stat"><strong style="color:#22c55e">${stats.clientesAtivos}</strong>Ativos</div>
-        <div class="rep-stat"><strong style="color:#ef4444">${stats.clientesInativos}</strong>Inativos</div>
-        <div class="rep-stat"><strong style="color:#3b82f6">${stats.prospectsNoRaio}</strong>Prospects</div>
+      <div class="rep-item-info">${rep.municipio ? "📍 " + rep.municipio + " · " : ""}⭕ Raio: ${rep.raioKm || 50} km</div>
+      <div class="rep-item-stats">
+        <div class="rep-mini-stat" style="color:var(--ativo)"><strong>${stats.clientesAtivos}</strong> Ativos</div>
+        <div class="rep-mini-stat" style="color:var(--inativo)"><strong>${stats.clientesInativos}</strong> Inat.</div>
+        <div class="rep-mini-stat" style="color:var(--prospect)"><strong>${stats.prospectsNoRaio}</strong> Pros.</div>
       </div>
     `;
-    listEl.appendChild(card);
+    
+    div.onclick = () => {
+      if (rep.lat && rep.lng) map.flyTo([rep.lat, rep.lng], 11);
+      abrirRepDetalhe(rep, stats);
+    };
+    listEl.appendChild(div);
   });
+
+  if (representantesNaRegiao.length === 0) {
+    listEl.innerHTML = `<div class="empty-msg">Nenhum representante baseado nesta área.</div>`;
+  }
 }
 
-function filtrarClientesLocal() {
-  const municipio = document.getElementById("filtro-municipio").value.toLowerCase();
-  const status = document.getElementById("filtro-status").value.toLowerCase();
-  const rep = document.getElementById("filtro-rep").value.toLowerCase();
-  const nome = document.getElementById("filtro-nome").value.toLowerCase();
+// Detalhes inferiores do Representante
+function abrirRepDetalhe(rep, stats) {
+  document.getElementById("rep-detalhe").classList.add("open");
+  document.getElementById("rep-det-nome").textContent = rep.nome;
+  document.getElementById("rd-ativos").textContent = stats.clientesAtivos;
+  document.getElementById("rd-inativos").textContent = stats.clientesInativos;
+  document.getElementById("rd-prospects").textContent = stats.prospectsNoRaio;
+  document.getElementById("rd-raio").textContent = `${rep.raioKm || 50}km`;
+  window._atualRepParaRota = rep;
+}
 
+function fecharRepDetalhe() {
+  document.getElementById("rep-detalhe")?.classList.remove("open");
+}
+window.fecharRepDetalhe = fecharRepDetalhe;
+
+function verRotaRep() {
+  if (!window._atualRepParaRota) return;
+  toast(`Gerando roteirização comercial otimizada para: ${window._atualRepParaRota.nome}`);
+}
+window.verRotaRep = verRotaRep;
+
+// FILTROS EM TEMPO REAL (Chamados via HTML)
+function filtrarClientes() {
+  const termo = document.getElementById("filtro-cliente").value.toLowerCase();
   const filtrados = clientesFiltradosRegiao.filter(c => {
-    if (municipio && !c.municipio.toLowerCase().includes(municipio)) return false;
-    if (status && c.status !== status) return false;
-    if (rep && !c.representante.toLowerCase().includes(rep)) return false;
-    if (nome && !c.nome.toLowerCase().includes(nome) && !c.cnpj.includes(nome)) return false;
-    return true;
+    return (c.nome || "").toLowerCase().includes(termo) || 
+           (c.cnpj || "").includes(termo) || 
+           (c.municipio || "").toLowerCase().includes(termo);
   });
   renderizarClientes(filtrados);
 }
+window.filtrarClientes = filtrarClientes;
 
-function filtrarProspectsLocal() {
-  const cnae = document.getElementById("filtro-cnae").value;
-  const textoNome = document.getElementById("filtro-prospect-nome").value.toLowerCase();
-
+function filtrarProspects() {
+  const termo = document.getElementById("filtro-prospect").value.toLowerCase();
   const filtrados = prospectsFiltradosRegiao.filter(p => {
-    if (cnae && !p.cnae.replace(/\D/g, '').includes(cnae)) return false;
-    if (textoNome && !p.nome.toLowerCase().includes(textoNome) && !p.cnpj.includes(textoNome)) return false;
-    return true;
+    return (p.nome || "").toLowerCase().includes(termo) || 
+           (p.cnpj || "").includes(termo) || 
+           (p.cnae || "").toLowerCase().includes(termo);
   });
   renderizarProspects(filtrados);
 }
+window.filtrarProspects = filtrarProspects;
 
+function filtrarPorStatus(status) {
+  const filtrados = clientesFiltradosRegiao.filter(c => c.status === status);
+  renderizarClientes(filtrados);
+  switchAba('clientes', document.querySelector('[data-aba=clientes]'));
+  
+  // Destaca o card clicado visualmente
+  document.querySelectorAll('.stat-card').forEach(c => c.classList.remove('active-filter'));
+  if(status === 'ativo') document.querySelectorAll('.stat-card')[0].classList.add('active-filter');
+  if(status === 'inativo') document.querySelectorAll('.stat-card')[1].classList.add('active-filter');
+}
+window.filtrarPorStatus = filtrarPorStatus;
+
+// ATUALIZAÇÃO DE STATS E PILLS
+function atualizarPills() {
+  const total = clientesFiltradosRegiao.length;
+  const ativos = clientesFiltradosRegiao.filter(c => c.status === "ativo").length;
+  const inativos = total - ativos;
+  const prospects = prospectsFiltradosRegiao.length;
+  const reps = Object.keys(marcadoresRep).length;
+
+  if (document.getElementById("stat-ativos")) document.getElementById("stat-ativos").textContent = ativos;
+  if (document.getElementById("stat-inativos")) document.getElementById("stat-inativos").textContent = inativos;
+  if (document.getElementById("stat-prospects")) document.getElementById("stat-prospects").textContent = prospects;
+  if (document.getElementById("stat-reps")) document.getElementById("stat-reps").textContent = reps;
+
+  const pctAtivo = total > 0 ? Math.round((ativos / total) * 100) : 0;
+  const pctInativo = total > 0 ? Math.round((inativos / total) * 100) : 0;
+
+  if (document.getElementById("stat-ativos-pct")) document.getElementById("stat-ativos-pct").textContent = `${pctAtivo}% do total`;
+  if (document.getElementById("stat-inativos-pct")) document.getElementById("stat-inativos-pct").textContent = `${pctInativo}% do total`;
+}
+
+function renderizarOportunidades() {
+  const box = document.getElementById("oport-itens");
+  if (!box) return;
+  
+  if (prospectsFiltradosRegiao.length > 0) {
+    box.innerHTML = `
+      <div class="oport-item">
+        <span class="oport-emoji">🎯</span>
+        <div>Existem <b>${prospectsFiltradosRegiao.length} novos prospects</b> na área visível mapeada aguardando prospecção ativa.</div>
+      </div>
+    `;
+  } else {
+    box.innerHTML = `<div class="oport-item">Nenhuma brecha de mercado pendente na seleção atual.</div>`;
+  }
+}
+
+// NAVEGAÇÃO DE ABAS
+function switchAba(abaNome, btn) {
+  document.querySelectorAll(".aba-conteudo").forEach(p => p.classList.remove("active"));
+  document.querySelectorAll(".aba-btn").forEach(b => b.classList.remove("active"));
+  
+  const painelAlvo = document.getElementById("aba-" + abaNome);
+  if (painelAlvo) painelAlvo.classList.add("active");
+  if (btn) btn.classList.add("active");
+}
+window.switchAba = switchAba;
+
+function togglePainel() {
+  const painel = document.getElementById("painel");
+  if (painel) {
+    painel.classList.toggle("open");
+    const aberto = painel.classList.contains("open");
+    document.getElementById("toggle-icon").textContent = aberto ? "◀" : "☰";
+  }
+}
+window.togglePainel = togglePainel;
+
+// AUXILIARES GEOGRÁFICOS E CÁLCULOS
 function calcularEstatisticasRep(rep) {
   if (!rep.lat || !rep.lng) return { clientesAtivos: 0, clientesInativos: 0, prospectsNoRaio: 0 };
-  const raioMetros = rep.raioKm * 1000;
+  const raioMetros = (rep.raioKm || 50) * 1000;
   let ativos = 0, inativos = 0, prospects = 0;
 
   clientesFiltradosRegiao.forEach(c => {
@@ -335,7 +467,7 @@ function popupCliente(c) {
   return `<div class="popup-nome">${c.nome || "Sem nome"}</div>
     <div class="popup-info">
       <b>CNPJ:</b> ${c.cnpj || "—"}<br><b>Status:</b> <span class="badge ${c.status}">${c.status}</span><br>
-      <b>Endereço:</b> ${c.endereco || "—"}<br><b>Município:</b> ${c.municipio || "—"}<br>
+      <b>Endereço:</b> ${c.endereco || "—"} (${c.municipio || "—"})<br>
       <b>Representante:</b> ${c.representante || "Sem atribuição"}
     </div>`;
 }
@@ -344,147 +476,30 @@ function popupRepresentante(rep) {
   const stats = calcularEstatisticasRep(rep);
   return `<div class="popup-nome">${rep.nome}</div>
     <div class="popup-info">
-      <b>Base:</b> ${rep.municipio || "—"}<br><b>Raio operacional:</b> ${rep.raioKm} km<br>
-      <hr style="margin:5px 0; border:none; border-top:1px solid #ddd;">
-      <b>Resumo de Atuação Local:</b><br>
-      ✅ Ativos: ${stats.clientesAtivos} | ❌ Inativos: ${stats.clientesInativos}<br>
-      🎯 Prospects no Raio: ${stats.prospectsNoRaio}
+      <b>Base:</b> ${rep.municipio || "—"}<br><b>Área operacional:</b> ${rep.raioKm || 50} km<br>
+      <hr>
+      <b>Resumo de Atuação:</b><br>
+      ✅ Clientes Ativos no Raio: ${stats.clientesAtivos}<br>
+      ❌ Clientes Inativos no Raio: ${stats.clientesInativos}<br>
+      🎯 Prospects Mapeados: ${stats.prospectsNoRaio}
     </div>`;
 }
 
 function onMapClick(e) {
-  const tab = document.querySelector(".tab-btn.active");
-  if (!tab || !tab.textContent.includes("Representantes")) return;
   const { lat, lng } = e.latlng;
   window._pendingLat = lat; window._pendingLng = lng;
-  reverseGeocode(lat, lng).then(m => {
-    if(!document.getElementById("rep-municipio").value) document.getElementById("rep-municipio").value = m;
-  });
-  toast(`📍 Posição do representante definida!`);
-}
-
-async function reverseGeocode(lat, lng) {
-  try {
-    const r = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}`);
-    const d = await r.json(); return d.address?.city || d.address?.town || "";
-  } catch { return ""; }
-}
-
-async function salvarRepresentante() {
-  const nome = document.getElementById("rep-nome").value.trim();
-  if (!nome) { toast("Digite o nome."); return; }
-  const id = document.getElementById("rep-id").value || String(Date.now());
-
-  const payload = {
-    action: "salvarRepresentante", id, nome,
-    telefone: document.getElementById("rep-tel").value,
-    email: document.getElementById("rep-email").value,
-    municipio: document.getElementById("rep-municipio").value,
-    raioKm: parseFloat(document.getElementById("rep-raio").value) || 50,
-    cor: document.getElementById("rep-cor").value,
-    lat: window._pendingLat || 0, lng: window._pendingLng || 0
-  };
-
-  mostrarLoading(true, "Gravando dados...");
-  const r = await chamarAPIPost(payload);
-  mostrarLoading(false);
-  if(r.ok) {
-    toast("Representante salvo!"); cancelarFormRep();
-    if(limitesRegiaoAtual) await carregarDadosDaRegiao(limitesRegiaoAtual);
-  }
-}
-
-function editarRep(id) {
-  const realRep = representantes.find(r => r.id === id);
-  if (!realRep) return;
-  document.getElementById("rep-form-titulo").textContent = "Editar representante";
-  document.getElementById("rep-id").value = realRep.id;
-  document.getElementById("rep-nome").value = realRep.nome;
-  document.getElementById("rep-tel").value = realRep.telefone;
-  document.getElementById("rep-email").value = realRep.email;
-  document.getElementById("rep-municipio").value = realRep.municipio;
-  document.getElementById("rep-raio").value = realRep.raioKm;
-  document.getElementById("rep-cor").value = realRep.cor;
-  window._pendingLat = realRep.lat; window._pendingLng = realRep.lng;
-}
-
-function cancelarFormRep() {
-  document.getElementById("rep-id").value = "";
-  document.getElementById("rep-nome").value = "";
-  document.getElementById("rep-tel").value = "";
-  document.getElementById("rep-email").value = "";
-  document.getElementById("rep-municipio").value = "";
-  document.getElementById("rep-raio").value = "50";
-  document.getElementById("rep-cor").value = "#3B82F6";
-  document.getElementById("rep-form-titulo").textContent = "+ Novo representante";
-  window._pendingLat = null; window._pendingLng = null;
-}
-
-async function deletarRep(id) {
-  if (!confirm("Remover este representante?")) return;
-  mostrarLoading(true, "Excluindo...");
-  const r = await chamarAPIPost({ action: "deletarRepresentante", id });
-  if(r.ok) { toast("Removido."); if(limitesRegiaoAtual) await carregarDadosDaRegiao(limitesRegiaoAtual); }
-  mostrarLoading(false);
-}
-
-async function geocodificarPendentes() {
-  if (!confirm("Mapear endereços sem lat/lng do banco?")) return;
-  mostrarLoading(true, "Geocodificando novos registros...");
-  const r = await chamarAPIPost({ action: "geocodificarPendentes" });
-  mostrarLoading(false);
-  toast(`Processado: ${r.geocodificados} com sucesso.`);
-  if(limitesRegiaoAtual) await carregarDadosDaRegiao(limitesRegiaoAtual);
-}
-
-async function chamarAPI(params) {
-  if (!API_URL) return { clientes:[], prospects:[], representantes:[] };
-  const url = new URL(API_URL);
-  Object.entries(params).forEach(([k, v]) => url.searchParams.set(k, v));
-  const r = await fetch(url.toString()); return await r.json();
-}
-
-async function chamarAPIPost(payload) {
-  if (!API_URL) return { ok: true };
-  const r = await fetch(API_URL, {
-    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload)
-  });
-  return await r.json();
-}
-
-function atualizarPills() {
-  const atv = clientesFiltradosRegiao.filter(c => c.status === "ativo").length;
-  const inat = clientesFiltradosRegiao.length - atv;
-  document.getElementById("pill-total").textContent = `${clientesFiltradosRegiao.length} clientes`;
-  document.getElementById("pill-ativo").textContent = `${atv} ativos`;
-  document.getElementById("pill-inativo").textContent = `${inat} inativos`;
-  document.getElementById("pill-prospect").textContent = `${prospectsFiltradosRegiao.length} prospects`;
-}
-
-function switchTab(n, b) {
-  document.querySelectorAll(".tab-panel").forEach(p => p.classList.remove("active"));
-  document.querySelectorAll(".tab-btn").forEach(btn => btn.classList.remove("active"));
-  document.getElementById("tab-" + n).classList.add("active");
-  b.classList.add("active");
-}
-
-function toggleSidebar() {
-  sidebarAberta = !sidebarAberta;
-  const s = document.getElementById("sidebar");
-  const b = document.getElementById("btn-toggle-sidebar");
-  s.classList.toggle("collapsed", !sidebarAberta);
-  b.style.left = sidebarAberta ? "300px" : "0";
-  b.textContent = sidebarAberta ? "◀" : "▶";
 }
 
 function mostrarLoading(s, m) {
   const el = document.getElementById("loading");
+  if (!el) return;
   el.classList.toggle("hidden", !s);
   if (m) el.querySelector("p").textContent = m;
 }
 
 function toast(m) {
   const el = document.getElementById("toast");
+  if (!el) return;
   el.textContent = m; el.classList.add("show");
   setTimeout(() => el.classList.remove("show"), 3000);
 }
@@ -497,16 +512,6 @@ function distanciaKm(lat1, lng1, lat2, lng2) {
   return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
 }
 
-function exportarCSV() {
-  if (!clientesFiltradosRegiao.length) { toast("Nenhum dado filtrado."); return; }
-  const cabecalho = ["CNPJ","Nome","Município","Status","CNAE","Representante"];
-  const linhas = clientesFiltradosRegiao.map(c => [c.cnpj, c.nome, c.municipio, c.status, c.cnae, c.representante].map(v => `"${String(v || "").replace(/"/g, '""')}"`).join(","));
-  const csv = [cabecalho.join(","), ...linhas].join("\n");
-  const blob = new Blob(["\uFEFF" + csv], { type: "text/csv;charset=utf-8;" });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a"); a.href = url; a.download = "clientes_regiao.csv"; a.click();
-}
-
 function criarIconeCluster(cluster) {
   const count = cluster.getChildCount();
   const size = count < 100 ? 34 : 44;
@@ -514,4 +519,12 @@ function criarIconeCluster(cluster) {
     html: `<div style="background:rgba(26,26,24,0.9);color:#fff;width:${size}px;height:${size}px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:600;border:2px solid #fff;">${count}</div>`,
     className: "", iconSize: [size, size]
   });
+}
+
+// ASSINATURAS API COMPATÍVEIS
+async function chamarAPI(params) {
+  if (!API_URL) return { clientes:[], prospects:[], representantes:[] };
+  const url = new URL(API_URL);
+  Object.entries(params).forEach(([k, v]) => url.searchParams.set(k, v));
+  const r = await fetch(url.toString()); return await r.json();
 }
