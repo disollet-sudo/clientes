@@ -2,7 +2,7 @@
 // MAPA DE CLIENTES — app.js (Versão Filtro Inteligente e Cache)
 // ============================================================
 
-const API_URL = "https://script.google.com/macros/s/AKfycbxB4RCfdrRecyHWQFxkq8gyeBLzTETNLtx6bT41_h1mSCN7aW2B7MJzLbQe6etu5IS3ng/exec";
+const API_URL = "https://script.google.com/macros/s/AKfycby8XDTLqAqpxKugDCbcKPZIb2ajKN5ty7nDJCDXvHVi9pd-pO3jK3hDp7i-7Rsl9ooz-Q/exec";
 
 let map, clusterClientes, clusterProspects;
 
@@ -29,7 +29,7 @@ function inicializarMapa() {
   }).addTo(map);
   
   clusterClientes = L.markerClusterGroup({ chunkedLoading: true, maxClusterRadius: 45, iconCreateFunction: criarIconeCluster });
-  clusterProspects = L.markerClusterGroup({ chunkedLoading: true, maxClusterRadius: 45 });
+  clusterProspects = L.markerClusterGroup({ chunkedLoading: true, maxClusterRadius: 45, iconCreateFunction: criarIconeClusterProspect });
   
   map.addLayer(clusterClientes); 
   map.addLayer(clusterProspects);
@@ -239,9 +239,13 @@ function renderizarClientes(lista) {
   
   lista.forEach(c => {
     if (c.lat && c.lng) {
+      const isAtivo = c.status === "ativo";
       const marker = L.circleMarker([c.lat, c.lng], {
-        radius: 7, fillColor: c.status === "ativo" ? "#22c55e" : "#ef4444",
-        color: c.status === "ativo" ? "#16a34a" : "#dc2626", weight: 1.5, fillOpacity: 0.85
+        radius: 8,
+        fillColor: isAtivo ? "#22c55e" : "#ef4444",
+        color: isAtivo ? "#15803d" : "#b91c1c",
+        weight: 2,
+        fillOpacity: 0.9
       });
       marker.bindPopup(popupCliente(c));
       clusterClientes.addLayer(marker);
@@ -265,9 +269,9 @@ function renderizarProspects(lista) {
   
   lista.forEach(p => {
     if (p.lat && p.lng) {
-      // PROSPECTS = LARANJA
+      // PROSPECTS = AZUL
       const marker = L.circleMarker([p.lat, p.lng], {
-        radius: 7, fillColor: "#f59e0b", color: "#d97706", weight: 1.5, fillOpacity: 0.85
+        radius: 8, fillColor: "#2563eb", color: "#1d4ed8", weight: 2, fillOpacity: 0.85
       });
       marker.bindPopup(`<div class="popup-nome">${p.nome}</div>
         <div class="popup-info"><b>CNPJ:</b> ${p.cnpj}<br><b>Atividade:</b> ${p.cnae}<br>
@@ -452,6 +456,14 @@ function criarIconeCluster(cluster) {
   return L.divIcon({ 
     html: `<div style="background:rgba(26,26,24,0.9);color:#fff;width:${size}px;height:${size}px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:600;border:2px solid #fff;">${count}</div>`, 
     className: "", iconSize: [size, size] 
+  });
+}
+
+function criarIconeClusterProspect(cluster) {
+  const count = cluster.getChildCount(), size = count < 100 ? 34 : 44;
+  return L.divIcon({
+    html: `<div style="background:rgba(37,99,235,0.9);color:#fff;width:${size}px;height:${size}px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:600;border:2px solid #fff;">${count}</div>`,
+    className: "", iconSize: [size, size]
   });
 }
 
