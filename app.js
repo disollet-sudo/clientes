@@ -2,7 +2,7 @@
 // MAPA DE CLIENTES — app.js (Versão Filtro Inteligente e Cache)
 // ============================================================
 
-const API_URL = "https://script.google.com/macros/s/AKfycbxh8ikW_2hvTdz2UVFm2ctxbE2iec5ICHYb3MgzFB_Cd3FnBOLA2JAsfgd2onU9FMD48g/exec";
+const API_URL = "https://script.google.com/macros/s/AKfycbxB4RCfdrRecyHWQFxkq8gyeBLzTETNLtx6bT41_h1mSCN7aW2B7MJzLbQe6etu5IS3ng/exec";
 
 let map, clusterClientes, clusterProspects;
 
@@ -295,10 +295,16 @@ function renderizarRepresentantes() {
   
   repsFiltradosRegiao.forEach(rep => {
     if (rep.lat && rep.lng) {
-      // Ícone robusto padrão para não sumir!
-      const marker = L.circleMarker([rep.lat, rep.lng], {
-        radius: 10, fillColor: rep.cor, color: "#ffffff", weight: 3, fillOpacity: 1
+      // Ícone de boneco (pessoa) bem visível para representantes
+      const cor = rep.cor || "#7c3aed";
+      const repIcon = L.divIcon({
+        className: "",
+        iconSize: [36, 44],
+        iconAnchor: [18, 44],
+        popupAnchor: [0, -44],
+        html: `<div style="position:relative;width:36px;height:44px;filter:drop-shadow(0 2px 4px rgba(0,0,0,0.5));"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 36 44" width="36" height="44"><path d="M18 0C8.06 0 0 8.06 0 18c0 13.5 18 26 18 26S36 31.5 36 18C36 8.06 27.94 0 18 0z" fill="${cor}" stroke="#fff" stroke-width="2"/><circle cx="18" cy="13" r="5" fill="#fff"/><path d="M8 28c0-5.52 4.48-10 10-10s10 4.48 10 10" fill="#fff"/></svg></div>`
       });
+      const marker = L.marker([rep.lat, rep.lng], { icon: repIcon });
       
       marker.bindPopup(popupRepresentante(rep)); 
       marker.addTo(map); 
