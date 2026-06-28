@@ -540,6 +540,22 @@
     .rep-item-stats { display: flex; gap: 14px; margin-top: 8px; }
     .rep-mini-stat { font-size: 11px; }
     .rep-mini-stat strong { font-weight: 600; }
+
+    /* ── BOTÃO FOCO REP ── */
+    .btn-foco-rep {
+      background: rgba(245,158,11,0.12);
+      color: #f59e0b;
+      border: 1px solid rgba(245,158,11,0.3);
+      border-radius: 8px;
+      padding: 5px 12px;
+      font-size: 11px;
+      font-weight: 600;
+      font-family: 'Inter', sans-serif;
+      cursor: pointer;
+      transition: background 0.2s;
+      width: 100%;
+    }
+    .btn-foco-rep:hover { background: rgba(245,158,11,0.22); }
   </style>
 </head>
 <body>
@@ -568,10 +584,10 @@
     </button>
 
     <div class="welcome-legend">
-      <div class="leg-item"><div class="leg-dot" style="background:var(--ativo)"></div> Cliente ativo</div>
-      <div class="leg-item"><div class="leg-dot" style="background:var(--inativo)"></div> Cliente inativo</div>
-      <div class="leg-item"><div class="leg-dot" style="background:var(--prospect)"></div> Prospect</div>
-      <div class="leg-item"><div class="leg-dot" style="background:var(--rep); border:2px solid #7c3aed"></div> Representante</div>
+      <div class="leg-item"><div class="leg-dot" style="background:#22c55e"></div> Cliente ativo</div>
+      <div class="leg-item"><div class="leg-dot" style="background:#ef4444"></div> Cliente inativo</div>
+      <div class="leg-item"><div class="leg-dot" style="background:#2563eb"></div> Prospect</div>
+      <div class="leg-item"><div class="leg-dot" style="background:#f59e0b"></div> Representante</div>
     </div>
   </div>
 </div>
@@ -649,7 +665,7 @@
   </div>
 
   <!-- ABA REPRESENTANTES -->
-  <div class="aba-conteudo" id="aba-representantes">
+  <div class="aba-conteudo" id="aba-reps">
     <div class="lista-scroll" id="lista-reps"></div>
   </div>
 </div>
@@ -657,30 +673,34 @@
 <!-- PAINEL DE DETALHE DO REPRESENTANTE -->
 <div id="rep-detalhe">
   <div class="rep-det-header">
-    <div class="rep-avatar" id="rep-det-avatar">👤</div>
+    <div class="rep-avatar" id="rep-det-avatar" style="background:rgba(245,158,11,0.15);color:#f59e0b;">🧍</div>
     <div class="rep-det-nome" id="rep-det-nome">—</div>
     <button class="btn-fechar-rep" onclick="fecharRepDetalhe()">×</button>
   </div>
   <div class="rep-det-stats">
     <div class="rep-det-stat">
-      <strong style="color:var(--ativo)" id="rd-ativos">0</strong>
+      <strong style="color:#22c55e" id="rd-ativos">0</strong>
       <span>Ativos</span>
     </div>
     <div class="rep-det-stat">
-      <strong style="color:var(--inativo)" id="rd-inativos">0</strong>
+      <strong style="color:#ef4444" id="rd-inativos">0</strong>
       <span>Inativos</span>
     </div>
     <div class="rep-det-stat">
-      <strong style="color:var(--prospect)" id="rd-prospects">0</strong>
+      <strong style="color:#2563eb" id="rd-prospects">0</strong>
       <span>Prospects</span>
     </div>
     <div class="rep-det-stat">
-      <strong style="color:var(--rep)" id="rd-raio">0km</strong>
+      <strong style="color:#f59e0b" id="rd-raio">0km</strong>
       <span>Raio</span>
+    </div>
+    <div class="rep-det-stat" style="grid-column:1/-1;background:rgba(245,158,11,0.08);border:1px solid rgba(245,158,11,0.2);">
+      <strong style="color:#f59e0b;font-size:14px;" id="rd-potencial">—</strong>
+      <span style="font-size:10px;color:#f59e0b;opacity:0.8;">Potencial de crescimento (prospects ÷ clientes ativos)</span>
     </div>
   </div>
   <button class="btn-rota" id="btn-ver-rota" onclick="verRotaRep()">
-    🗺 Ver rota com clientes ativos + prospects
+    🗺️ Ver rota otimizada de prospecção no raio
   </button>
 </div>
 
