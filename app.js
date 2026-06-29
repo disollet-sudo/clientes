@@ -2,7 +2,7 @@
 // MAPA DE CLIENTES — app.js (Versão Representante em Foco)
 // ============================================================
 
-const API_URL = "https://script.google.com/macros/s/AKfycbw1cd-544_y5nYIlpRe50qfmJJlSMRSu63aeBCsin4qX3FBB3Px3hr3p5Kj8RnHpTQmbg/exec";
+const API_URL = "https://script.google.com/macros/s/AKfycbzzu0wWf83fbx3_E15S0X4PoOCmuQSjwVVjWr3mZeOBKz8WEApu4oLv6KLML8zepgF4Rg/exec";
 
 let map, clusterClientes, clusterProspects;
 let cacheClientes = [], cacheProspects = [], cacheRepresentantes = [];
