@@ -2,7 +2,7 @@
 // MAPA DE CLIENTES — app.js (Versão Representante em Foco)
 // ============================================================
 
-const API_URL = "https://script.google.com/macros/s/AKfycbzzu0wWf83fbx3_E15S0X4PoOCmuQSjwVVjWr3mZeOBKz8WEApu4oLv6KLML8zepgF4Rg/exec";
+const API_URL = "https://script.google.com/macros/s/AKfycbw1cd-544_y5nYIlpRe50qfmJJlSMRSu63aeBCsin4qX3FBB3Px3hr3p5Kj8RnHpTQmbg/exec";
 
 let map, clusterClientes, clusterProspects;
 let cacheClientes = [], cacheProspects = [], cacheRepresentantes = [];
@@ -149,18 +149,21 @@ async function carregarAPIGlobal() {
         lat: coords.lat, lng: coords.lng
       };
     });
-    cacheRepresentantes = arrReps.map(r => {
+    cacheRepresentantes = arrReps.map((r, idx) => {
       const coords = extrairCoordenadas(r);
-      let nomeRep = r.Nome_completo || r.Fantasia || r.nome || r.Nome || "Representante";
-      let raioKm = r.raioKm || r.raiokm || r.Raio || 50;
+      const CORES  = ["#f59e0b","#3b82f6","#ec4899","#10b981","#8b5cf6","#f97316","#06b6d4","#84cc16"];
       return {
         ...r,
-        id: r.Cd_empresa || r.id || r.Id || nomeRep,
-        nome: nomeRep,
-        municipio: r.Município || r.Municipio || r.cidade || "—",
-        cor: r.cor || r.Cor || "#7c3aed",
-        raioKm: parseFloat(String(raioKm).replace(',', '.')),
-        lat: coords.lat, lng: coords.lng
+        id:        r.id || r.Cd_empresa || r.cdRepresentante || String(idx),
+        nome:      r.nomeExibicao || r.fantasia || r.Nome_completo || r.nome || r.Nome || "Representante",
+        municipio: r.municipio || r.Municipio || r.Município || "—",
+        uf:        r.uf || r.Uf || "",
+        divisao:   r.divisao || r.Divisao || "",
+        cdRepresentante: r.cdRepresentante || r.Cd_represent || r.id || "",
+        cor:       r.cor || r.Cor || CORES[idx % CORES.length],
+        raioKm:    parseFloat(String(r.raioKm || r.RaioKm || 80).replace(",", ".")) || 80,
+        lat: coords.lat || r.lat || 0,
+        lng: coords.lng || r.lng || 0
       };
     });
     dadosCarregadosGlobais = true;
@@ -618,11 +621,23 @@ function togglePainel() {
 window.togglePainel = togglePainel;
 
 function calcularEstatisticasRep(rep) {
-  if (!rep.lat || !rep.lng) return { clientesAtivos: 0, clientesInativos: 0, prospectsNoRaio: 0 };
-  const raioKm = rep.raioKm;
+  const raioKm = rep.raioKm || 80;
   let ativos = 0, inativos = 0, prospects = 0;
-  cacheClientes.forEach(c  => { if (c.lat  && c.lng  && distanciaKm(rep.lat,rep.lng,c.lat,c.lng)  <= raioKm) c.status==="ativo"?ativos++:inativos++; });
-  cacheProspects.forEach(p => { if (p.lat  && p.lng  && distanciaKm(rep.lat,rep.lng,p.lat,p.lng)  <= raioKm) prospects++; });
+  const cdRep = String(rep.cdRepresentante || rep.id || "").trim();
+
+  cacheClientes.forEach(c => {
+    const noRaio = rep.lat && rep.lng && c.lat && c.lng && distanciaKm(rep.lat, rep.lng, c.lat, c.lng) <= raioKm;
+    const doRep  = cdRep && (String(c.representante || "").trim() === cdRep || String(c.cd || "").trim() === cdRep);
+    if (noRaio || doRep) {
+      c.status === "ativo" ? ativos++ : inativos++;
+    }
+  });
+
+  if (rep.lat && rep.lng) {
+    cacheProspects.forEach(p => {
+      if (p.lat && p.lng && distanciaKm(rep.lat, rep.lng, p.lat, p.lng) <= raioKm) prospects++;
+    });
+  }
   return { clientesAtivos: ativos, clientesInativos: inativos, prospectsNoRaio: prospects };
 }
 
