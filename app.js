@@ -152,6 +152,30 @@ async function carregarAPIGlobal() {
     cacheRepresentantes = arrReps.map((r, idx) => {
       const coords = extrairCoordenadas(r);
       const CORES  = ["#f59e0b","#3b82f6","#ec4899","#10b981","#8b5cf6","#f97316","#06b6d4","#84cc16"];
+
+      // Valida bounds Brasil
+      const validarBR = (lat, lng) => {
+        const latOk = lat && lat >= -35 && lat <= 6;
+        const lngOk = lng && lng >= -75 && lng <= -28;
+        return latOk && lngOk ? { lat, lng } : { lat: 0, lng: 0 };
+      };
+
+      let { lat, lng } = validarBR(coords.lat || r.lat || 0, coords.lng || r.lng || 0);
+
+      // Se coordenadas inválidas, tenta buscar diretamente nos campos brutos
+      if (!lat || !lng) {
+        const possiveisLat = [r.Lat, r.lat, r.Latitude, r.latitude];
+        const possiveisLng = [r.Lng, r.lng, r.Longitude, r.longitude];
+        for (const v of possiveisLat) {
+          const n = parseFloat(String(v || "").replace(",", "."));
+          if (n >= -35 && n <= 6) { lat = n; break; }
+        }
+        for (const v of possiveisLng) {
+          const n = parseFloat(String(v || "").replace(",", "."));
+          if (n >= -75 && n <= -28) { lng = n; break; }
+        }
+      }
+
       return {
         ...r,
         id:        r.id || r.Cd_empresa || r.cdRepresentante || String(idx),
@@ -162,10 +186,16 @@ async function carregarAPIGlobal() {
         cdRepresentante: r.cdRepresentante || r.Cd_represent || r.id || "",
         cor:       r.cor || r.Cor || CORES[idx % CORES.length],
         raioKm:    parseFloat(String(r.raioKm || r.RaioKm || 80).replace(",", ".")) || 80,
-        lat: coords.lat || r.lat || 0,
-        lng: coords.lng || r.lng || 0
+        lat, lng
       };
     });
+
+    // Debug: mostra no console quantos reps têm coordenadas válidas
+    const comCoords = cacheRepresentantes.filter(r => r.lat && r.lng).length;
+    console.log(`Representantes carregados: ${cacheRepresentantes.length} total, ${comCoords} com coordenadas válidas`);
+    if (comCoords === 0 && cacheRepresentantes.length > 0) {
+      console.warn("Amostra de coords recebidas:", cacheRepresentantes.slice(0,3).map(r => ({ nome: r.nome, lat: r.lat, lng: r.lng })));
+    }
     dadosCarregadosGlobais = true;
   } catch (e) {
     console.error(e); toast("Erro ao carregar dados."); throw e;
