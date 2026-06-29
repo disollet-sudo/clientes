@@ -2,7 +2,7 @@
 // MAPA DE CLIENTES — app.js (Versão Representante em Foco)
 // ============================================================
 
-const API_URL = "https://script.google.com/macros/s/AKfycby8XDTLqAqpxKugDCbcKPZIb2ajKN5ty7nDJCDXvHVi9pd-pO3jK3hDp7i-7Rsl9ooz-Q/exec";
+const API_URL = "https://script.google.com/macros/s/AKfycbzzu0wWf83fbx3_E15S0X4PoOCmuQSjwVVjWr3mZeOBKz8WEApu4oLv6KLML8zepgF4Rg/exec";
 
 let map, clusterClientes, clusterProspects;
 let cacheClientes = [], cacheProspects = [], cacheRepresentantes = [];
@@ -138,11 +138,14 @@ async function carregarAPIGlobal() {
       const coords = extrairCoordenadas(p);
       return {
         ...p,
-        cnpj: p.CNPJ || p.cnpj || "—",
-        nome: p.Nome || p["Razão Social"] || p.nome || p.Razao_Social || "Sem nome",
-        municipio: p.Município || p.Municipio || p.cidade || p.Município_UF || "—",
-        endereco: p.Endereço || p.Endereco || p.endereco || "—",
-        cnae: p.CNAE_Desc || p.CNAE || p.cnae || "—",
+        cnpj:      p.CNPJ      || p.cnpj      || "—",
+        nome:      p.Nome      || p["Razão Social"] || p.nome || p.Razao_Social || "Sem nome",
+        municipio: p.Município || p.Municipio  || p.cidade || p.Município_UF || "—",
+        endereco:  p.Endereço  || p.Endereco   || p.endereco || "—",
+        cnae:      p.CNAE_Desc || p.CNAE       || p.cnae || "—",
+        telefone1: p.telefone1 || p["Telefone 1"] || p.Telefone1 || p.Telefone || p.fone || "",
+        telefone2: p.telefone2 || p["Telefone 2"] || p.Telefone2 || "",
+        email:     p.email     || p["E-mail"]  || p.Email || "",
         lat: coords.lat, lng: coords.lng
       };
     });
@@ -271,11 +274,22 @@ function desenharRotaProspects(rep, prospects) {
       html: `<div style="background:#f59e0b;color:#000;width:22px;height:22px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;border:2px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,0.4);">${i+1}</div>`
     });
     L.marker([p.lat, p.lng], { icon: numIcon })
-      .bindPopup(`<div class="popup-nome">#${i+1} ${p.nome}</div><div class="popup-info"><b>CNAE:</b> ${p.cnae}<br><b>Município:</b> ${p.municipio}</div>`)
+      .bindPopup(`<div class="popup-nome">#${i+1} ${p.nome}</div>
+        <div class="popup-info">
+          <b>CNPJ:</b> ${p.cnpj}<br>
+          <b>CNAE:</b> ${p.cnae}<br>
+          <b>Município:</b> ${p.municipio}
+          ${p.telefone1 ? `<br><b>📞</b> <a href="tel:${p.telefone1}" style="color:#f59e0b">${p.telefone1}</a>` : ""}
+          ${p.telefone2 ? ` / <a href="tel:${p.telefone2}" style="color:#f59e0b">${p.telefone2}</a>` : ""}
+          ${p.email     ? `<br><b>✉️</b> ${p.email}` : ""}
+        </div>`)
       .addTo(rotaLayer);
   });
 
   rotaLayer.addTo(map);
+
+  // Guarda rota para exportação
+  window._rotaAtual = { rep: window._atualRepParaRota, pontos: rota };
 }
 
 // ------------------------------------------------------------
@@ -344,14 +358,23 @@ function renderizarProspects(lista) {
         radius: 8, fillColor: "#2563eb", color: "#1d4ed8", weight: 2, fillOpacity: 0.85
       });
       marker.bindPopup(`<div class="popup-nome">${p.nome}</div>
-        <div class="popup-info"><b>CNPJ:</b> ${p.cnpj}<br><b>Atividade:</b> ${p.cnae}<br>
-        <b>Município:</b> ${p.municipio}<br><b>Endereço:</b> ${p.endereco}</div>`);
+        <div class="popup-info">
+          <b>CNPJ:</b> ${p.cnpj}<br>
+          <b>Atividade:</b> ${p.cnae}<br>
+          <b>Município:</b> ${p.municipio}<br>
+          <b>Endereço:</b> ${p.endereco}
+          ${p.telefone1 ? `<br><b>📞 Telefone:</b> <a href="tel:${p.telefone1}" style="color:#2563eb">${p.telefone1}</a>` : ""}
+          ${p.telefone2 ? ` / <a href="tel:${p.telefone2}" style="color:#2563eb">${p.telefone2}</a>` : ""}
+          ${p.email     ? `<br><b>✉️ E-mail:</b> <a href="mailto:${p.email}" style="color:#2563eb">${p.email}</a>` : ""}
+        </div>`);
       clusterProspects.addLayer(marker);
     }
     const div = document.createElement("div"); div.className = "item-lista";
     div.innerHTML = `<div class="item-icon" style="background:rgba(37,99,235,0.15)">🎯</div>
       <div class="item-dados"><div class="item-nome">${p.nome}</div><div class="item-info">
-      <span class="badge prospect">Prospect</span> ${p.municipio?" · "+p.municipio:""} · 🏷️ ${p.cnpj}</div></div>`;
+      <span class="badge prospect">Prospect</span> ${p.municipio?" · "+p.municipio:""}
+      ${p.telefone1 ? ` · 📞 ${p.telefone1}` : ""}
+      · 🏷️ ${p.cnpj}</div></div>`;
     div.onclick = () => { if (p.lat && p.lng) map.flyTo([p.lat, p.lng], 15); };
     listEl.appendChild(div);
   });
@@ -464,6 +487,80 @@ function verRotaRep() {
   else toast(`O representante ${rep.nome} não possui coordenadas.`);
 }
 window.verRotaRep = verRotaRep;
+
+function exportarRotaCSV() {
+  const dados = window._rotaAtual;
+  if (!dados || !dados.pontos || dados.pontos.length === 0) {
+    toast("Primeiro ative o modo foco de um representante para gerar a rota.");
+    return;
+  }
+  const rep    = dados.rep;
+  const pontos = dados.pontos;
+
+  // Cabeçalho
+  const linhas = [
+    `Rota de Prospecção — ${rep ? rep.nome : "Representante"}`,
+    `Gerado em: ${new Date().toLocaleDateString("pt-BR")} ${new Date().toLocaleTimeString("pt-BR")}`,
+    `Total de prospects na rota: ${pontos.length}`,
+    "",
+    "Ordem;Nome;CNPJ;Telefone 1;Telefone 2;E-mail;Município;Endereço;CNAE;Latitude;Longitude"
+  ];
+
+  pontos.forEach((p, i) => {
+    const linha = [
+      i + 1,
+      `"${(p.nome      || "").replace(/"/g, '""')}"`,
+      `"${(p.cnpj      || "").replace(/"/g, '""')}"`,
+      `"${(p.telefone1 || "").replace(/"/g, '""')}"`,
+      `"${(p.telefone2 || "").replace(/"/g, '""')}"`,
+      `"${(p.email     || "").replace(/"/g, '""')}"`,
+      `"${(p.municipio || "").replace(/"/g, '""')}"`,
+      `"${(p.endereco  || "").replace(/"/g, '""')}"`,
+      `"${(p.cnae      || "").replace(/"/g, '""')}"`,
+      p.lat || "",
+      p.lng || ""
+    ].join(";");
+    linhas.push(linha);
+  });
+
+  // Adiciona clientes ativos no raio (referência)
+  if (rep && rep.lat && rep.lng) {
+    const clientesNoRaio = cacheClientes.filter(c =>
+      c.lat && c.lng && c.status === "ativo" &&
+      distanciaKm(rep.lat, rep.lng, c.lat, c.lng) <= rep.raioKm
+    );
+    if (clientesNoRaio.length > 0) {
+      linhas.push("");
+      linhas.push("--- CLIENTES ATIVOS NO RAIO (para referência) ---");
+      linhas.push("Nome;CNPJ;Telefone;Município;Endereço;Representante");
+      clientesNoRaio.forEach(c => {
+        linhas.push([
+          `"${(c.nome      || "").replace(/"/g, '""')}"`,
+          `"${(c.cnpj      || "").replace(/"/g, '""')}"`,
+          `"${(c.fone      || "").replace(/"/g, '""')}"`,
+          `"${(c.municipio || "").replace(/"/g, '""')}"`,
+          `"${(c.endereco  || "").replace(/"/g, '""')}"`,
+          `"${(c.representante || "").replace(/"/g, '""')}"`
+        ].join(";"));
+      });
+    }
+  }
+
+  // Download
+  const bom     = "\uFEFF"; // BOM para Excel abrir com acentos corretos
+  const blob    = new Blob([bom + linhas.join("\n")], { type: "text/csv;charset=utf-8;" });
+  const url     = URL.createObjectURL(blob);
+  const a       = document.createElement("a");
+  const repNome = rep ? rep.nome.replace(/[^a-zA-Z0-9]/g, "_") : "rota";
+  a.href        = url;
+  a.download    = `rota_${repNome}_${new Date().toISOString().slice(0,10)}.csv`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+  toast(`✅ CSV exportado com ${pontos.length} prospects!`);
+}
+window.exportarRotaCSV = exportarRotaCSV;
 
 function filtrarClientes() {
   const termo = document.getElementById("filtro-cliente").value.toLowerCase();
