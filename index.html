@@ -389,6 +389,21 @@
       transition: background 0.2s;
     }
     .btn-rota:hover { background: rgba(99,102,241,0.25); }
+    .btn-exportar {
+      width: 100%;
+      margin-top: 8px;
+      padding: 11px;
+      font-size: 13px;
+      font-weight: 600;
+      font-family: 'Inter', sans-serif;
+      background: rgba(34,197,94,0.1);
+      color: #22c55e;
+      border: 1px solid rgba(34,197,94,0.3);
+      border-radius: 10px;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+    .btn-exportar:hover { background: rgba(34,197,94,0.2); }
 
     /* ── BOTÃO TOGGLE PAINEL ── */
     #btn-toggle {
@@ -701,6 +716,9 @@
   </div>
   <button class="btn-rota" id="btn-ver-rota" onclick="verRotaRep()">
     🗺️ Ver rota otimizada de prospecção no raio
+  </button>
+  <button class="btn-exportar" id="btn-exportar-rota" onclick="exportarRotaCSV()">
+    📥 Exportar lista (CSV) — nome, CNPJ e telefone
   </button>
 </div>
 
