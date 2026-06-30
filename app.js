@@ -3,7 +3,7 @@
 // Substitua a URL abaixo pela URL do seu Google Apps Script
 // ============================================================
 
-const GAS_URL = 'https://script.google.com/macros/s/AKfycby4q7ZLHksYF7X0C_arJY2Wq3zvR6JWBk49hZQhc1bOxF2XDaaDjv7T7UlaFTht0m4Cgg/exec';
+const GAS_URL = 'https://script.google.com/macros/s/AKfycbwj_MdUynEF5W5hehOwcQ2pj2RFx5uFfhfRHem9ViBgprHKsGjQNOfcmE8qDWmq0nxqGw/exec';
 const RAIO_PADRAO_KM = 200;
 
 // ─── Estado global ───────────────────────────────────────────
