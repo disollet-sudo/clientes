@@ -2,7 +2,7 @@
 // GESTÃO COMERCIAL — app.js
 // ============================================================
 
-const GAS_URL = 'https://script.google.com/macros/s/AKfycbwj_MdUynEF5W5hehOwcQ2pj2RFx5uFfhfRHem9ViBgprHKsGjQNOfcmE8qDWmq0nxqGw/exec';
+const GAS_URL = 'https://script.google.com/macros/s/AKfycbw3O9Ybnof0srD9FlcCYW-6dx7_fCWOxTXtihwWtcROzHSKOHtTRe-c_5j-G_bO79ItUQ/exec';
 const RAIO_PADRAO_KM = 200;
 
 // ─── Estado global ───────────────────────────────────────────
