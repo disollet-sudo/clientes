@@ -1,27 +1,30 @@
 // ============================================================
 // GESTÃO COMERCIAL — app.js
+// Substitua a URL abaixo pela URL do seu Google Apps Script
 // ============================================================
 
-const GAS_URL = 'https://script.google.com/macros/s/AKfycbw3O9Ybnof0srD9FlcCYW-6dx7_fCWOxTXtihwWtcROzHSKOHtTRe-c_5j-G_bO79ItUQ/exec';
+const GAS_URL = 'https://script.google.com/macros/s/AKfycby1AiWcoenp924eK1VfkzhmySFMM7G4k-VHaUpZPAfuEWIRva5HK9TUbyeDXNRAU9RW4g/exec';
 const RAIO_PADRAO_KM = 200;
+const MIN_PROSPECTS_NECESSIDADE = 2; // mínimo de prospects sem cobertura para sugerir um novo representante
 
 // ─── Estado global ───────────────────────────────────────────
 const state = {
   map: null,
   dados: null,           // { clientes, prospects, representantes }
-  propostos: [],         // Representantes recomendados (vagas)
   regiaoNome: '',
   bbox: null,
   layers: {
     clientes: null,
     prospects: null,
     representantes: null,
-    propostos: null,
+    necessidades: null,
     raioCircle: null,
     rota: null,
     highlight: []
   },
-  repAtivo: null,        // representante selecionado (real ou proposto)
+  repAtivo: null,        // representante selecionado
+  necessidades: [],      // clusters de pontos sem cobertura (boneco azul)
+  pontoAtivo: null,      // { lat, lng, cor, nome, tipo: 'rep' | 'necessidade' } — drawer atual
 };
 
 // ─── Init ────────────────────────────────────────────────────
@@ -53,15 +56,25 @@ function initMap() {
 // BIND UI
 // ============================================================
 function bindUI() {
+  // Botão buscar região
   document.getElementById('btn-buscar').addEventListener('click', buscarRegiao);
   document.getElementById('input-regiao').addEventListener('keydown', e => {
     if (e.key === 'Enter') buscarRegiao();
   });
 
+  // Fechar drawer representante
   document.getElementById('btn-fechar-drawer').addEventListener('click', fecharDrawer);
-  document.getElementById('btn-rota-csv').addEventListener('click', rotaEExcel);
+
+  // Botão rota + CSV
+  document.getElementById('btn-rota-csv').addEventListener('click', rotaECsv);
+
+  // Botão exportar Excel
+  document.getElementById('btn-excel').addEventListener('click', exportarExcel);
+
+  // Nova busca
   document.getElementById('btn-nova-busca').addEventListener('click', novaBusca);
 
+  // Abas do painel
   document.querySelectorAll('.tab-btn').forEach(btn => {
     btn.addEventListener('click', () => {
       document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
@@ -71,6 +84,7 @@ function bindUI() {
     });
   });
 
+  // Filtros das abas
   document.getElementById('filtro-clientes').addEventListener('input', renderListaClientes);
   document.getElementById('filtro-prospects').addEventListener('input', renderListaProspects);
   document.getElementById('filtro-representantes').addEventListener('input', renderListaRepresentantes);
@@ -98,7 +112,7 @@ async function buscarRegiao() {
     }
 
     const r = resultados[0];
-    const bb = r.boundingbox;
+    const bb = r.boundingbox; // [latMin, latMax, lngMin, lngMax]
     state.bbox = {
       latMin: parseFloat(bb[0]),
       latMax: parseFloat(bb[1]),
@@ -107,12 +121,16 @@ async function buscarRegiao() {
     };
     state.regiaoNome = r.display_name.split(',')[0];
 
+    // Centraliza mapa
     state.map.fitBounds([
       [state.bbox.latMin, state.bbox.lngMin],
       [state.bbox.latMax, state.bbox.lngMax]
     ], { padding: [30, 30] });
 
+    // Fecha card de busca
     document.getElementById('card-busca').style.display = 'none';
+
+    // Carrega dados do backend
     await carregarDados();
 
   } catch (err) {
@@ -138,15 +156,15 @@ async function carregarDados() {
     if (dados.erro) throw new Error(dados.erro);
 
     state.dados = dados;
-
-    // Calcular lacunas e posicionar representantes propostos (Bonecos Azuis)
-    calcularRepresentantesPropostos();
+    state.necessidades = calcularNecessidades();
 
     limparLayersAnteriores();
     plotarMarcadores();
+    plotarNecessidades();
     abrirPainel();
     renderStats();
     renderOportunidades();
+    renderNecessidadesBanner();
     renderListaClientes();
     renderListaProspects();
     renderListaRepresentantes();
@@ -163,85 +181,12 @@ function mostrarLoading(show) {
 }
 
 // ============================================================
-// ALGORITMO: IDENTIFICAR ÁREAS SEM COBERTURA (BONECOS AZUIS)
-// ============================================================
-function calcularRepresentantesPropostos() {
-  state.propostos = [];
-  const { clientes, prospects, representantes } = state.dados;
-
-  // Filtrar todos os clientes e prospects sem cobertura de nenhum representante ativo
-  let descobertos = [];
-
-  clientes.forEach(c => {
-    const coberto = representantes.some(r => haversine(c.lat, c.lng, r.lat, r.lng) <= RAIO_PADRAO_KM);
-    if (!coberto) {
-      descobertos.push({ tipo: 'Cliente', dados: c, lat: c.lat, lng: c.lng });
-    }
-  });
-
-  prospects.forEach(p => {
-    const coberto = representantes.some(r => haversine(p.lat, p.lng, r.lat, r.lng) <= RAIO_PADRAO_KM);
-    if (!coberto) {
-      descobertos.push({ tipo: 'Prospect', dados: p, lat: p.lat, lng: p.lng });
-    }
-  });
-
-  // Agrupamento Guloso (Greedy Clustering) para maximizar cobertura dos vazios comerciais
-  let idVaga = 1;
-  while (descobertos.length > 0) {
-    let melhorItem = null;
-    let maxAtendidos = -1;
-    let melhorVizinhos = [];
-
-    for (let i = 0; i < descobertos.length; i++) {
-      const itemA = descobertos[i];
-      let vizinhos = [];
-      for (let j = 0; j < descobertos.length; j++) {
-        const itemB = descobertos[j];
-        if (haversine(itemA.lat, itemA.lng, itemB.lat, itemB.lng) <= RAIO_PADRAO_KM) {
-          vizinhos.push(itemB);
-        }
-      }
-      if (vizinhos.length > maxAtendidos) {
-        maxAtendidos = vizinhos.length;
-        melhorItem = itemA;
-        melhorVizinhos = vizinhos;
-      }
-    }
-
-    if (!melhorItem) break;
-
-    const municAlvo = melhorItem.dados.municipio || melhorItem.dados.municipio_uf || 'Área Descoberta';
-    const ufAlvo = melhorItem.dados.uf || '';
-
-    const propRep = {
-      cd_representant: `PROP_${idVaga}`,
-      isProposto: true,
-      fantasia: `Nova Vaga #${idVaga}`,
-      nome_completo: `Representante Requerido — ${municAlvo}`,
-      municipio: municAlvo,
-      uf: ufAlvo,
-      divisao: 'Expansão de Mercado',
-      lat: melhorItem.lat,
-      lng: melhorItem.lng,
-      cor: '#3b82f6', // Azul Royal
-      raio_km: RAIO_PADRAO_KM,
-      itensNoRaio: melhorVizinhos
-    };
-
-    state.propostos.push(propRep);
-    // Remover do pool os registros que já foram englobados nesta nova zona azul
-    descobertos = descobertos.filter(item => !melhorVizinhos.includes(item));
-    idVaga++;
-  }
-}
-
-// ============================================================
 // PLOTAR MARCADORES
 // ============================================================
 function plotarMarcadores() {
   const { clientes, prospects, representantes } = state.dados;
 
+  // Cluster geral para clientes e prospects
   const clusterClientes = L.markerClusterGroup({ disableClusteringAtZoom: 12 });
   const clusterProspects = L.markerClusterGroup({ disableClusteringAtZoom: 12 });
 
@@ -276,7 +221,7 @@ function plotarMarcadores() {
     clusterProspects.addLayer(marker);
   });
 
-  // ── Representantes Atuais ──
+  // ── Representantes ──
   const layerReps = L.layerGroup();
   representantes.forEach(rep => {
     const cor = rep.cor || '#F59E0B';
@@ -293,42 +238,115 @@ function plotarMarcadores() {
     layerReps.addLayer(marker);
   });
 
-  // ── Representantes Propostos (Bonecos Azuis) ──
-  const layerProps = L.layerGroup();
-  state.propostos.forEach(prop => {
-    const icon = L.divIcon({
-      html: svgBoneco('#3b82f6'),
-      className: '',
-      iconSize: [32, 32],
-      iconAnchor: [16, 32]
-    });
-    const marker = L.marker([prop.lat, prop.lng], { icon, zIndexOffset: 1100 });
-    marker.bindPopup(`
-      <div class="popup-card">
-        <div class="popup-header"><span class="popup-badge" style="background:rgba(59,130,246,0.2);color:#3b82f6">Vaga Sugerida</span><strong>${prop.fantasia}</strong></div>
-        <div class="popup-row"><span>Cidade Alvo</span><span>${prop.municipio}/${prop.uf}</span></div>
-        <div class="popup-row"><span>Clientes no Raio</span><span>${prop.itensNoRaio.filter(i => i.tipo === 'Cliente').length}</span></div>
-        <div class="popup-row"><span>Prospects no Raio</span><span>${prop.itensNoRaio.filter(i => i.tipo === 'Prospect').length}</span></div>
-        <div class="popup-row" style="margin-top:8px"><span colspan="2" style="color:#94a3b8;font-size:11px">Clique para expandir estatísticas da vaga</span></div>
-      </div>
-    `);
-    marker.on('click', () => ativarModoRepProposto(prop, marker));
-    layerProps.addLayer(marker);
-  });
-
   clusterClientes.addTo(state.map);
   clusterProspects.addTo(state.map);
   layerReps.addTo(state.map);
-  layerProps.addTo(state.map);
 
   state.layers.clientes = clusterClientes;
   state.layers.prospects = clusterProspects;
   state.layers.representantes = layerReps;
-  state.layers.propostos = layerProps;
+}
+
+// ============================================================
+// NECESSIDADES DE REPRESENTANTE (boneco azul)
+// Agrupa prospects que não têm nenhum representante a até
+// 200km (já considerando a cobertura dos reps existentes) em
+// clusters de até 200km de raio, sugerindo onde alocar um novo
+// representante.
+// ============================================================
+function calcularNecessidades() {
+  const { prospects, representantes } = state.dados;
+  if (!prospects || !prospects.length) return [];
+
+  // Prospects fora do raio de 200km de qualquer representante existente
+  let descobertos = prospects.filter(p =>
+    !representantes.some(r => haversine(p.lat, p.lng, r.lat, r.lng) <= RAIO_PADRAO_KM)
+  );
+
+  const necessidades = [];
+
+  while (descobertos.length) {
+    // Para cada ponto descoberto, conta quantos outros descobertos
+    // caberiam dentro de um raio de 200km centrado nele
+    let melhorGrupo = [];
+    let melhorCentro = descobertos[0];
+
+    descobertos.forEach(candidato => {
+      const grupo = descobertos.filter(o =>
+        haversine(candidato.lat, candidato.lng, o.lat, o.lng) <= RAIO_PADRAO_KM
+      );
+      if (grupo.length > melhorGrupo.length) {
+        melhorGrupo = grupo;
+        melhorCentro = candidato;
+      }
+    });
+
+    // Centróide do grupo (posição sugerida para o novo representante)
+    const lat = melhorGrupo.reduce((s, p) => s + p.lat, 0) / melhorGrupo.length;
+    const lng = melhorGrupo.reduce((s, p) => s + p.lng, 0) / melhorGrupo.length;
+
+    necessidades.push({
+      id: 'nec_' + (necessidades.length + 1),
+      lat, lng,
+      prospects: melhorGrupo,
+      municipio_ref: melhorCentro.municipio_uf || melhorCentro.municipio || ''
+    });
+
+    descobertos = descobertos.filter(o => !melhorGrupo.includes(o));
+  }
+
+  // Só mantemos clusters relevantes (acima do mínimo configurado)
+  return necessidades.filter(n => n.prospects.length >= MIN_PROSPECTS_NECESSIDADE);
+}
+
+function plotarNecessidades() {
+  const layer = L.layerGroup();
+
+  state.necessidades.forEach((nec, idx) => {
+    const icon = L.divIcon({
+      html: `<div style="position:relative">${svgBoneco('#3b82f6')}<span class="boneco-badge">${nec.prospects.length}</span></div>`,
+      className: '',
+      iconSize: [32, 32],
+      iconAnchor: [16, 32]
+    });
+    const marker = L.marker([nec.lat, nec.lng], { icon, zIndexOffset: 900 });
+    marker.bindPopup(popupNecessidade(nec, idx));
+    marker._dadosNecessidade = nec;
+    marker.on('click', () => ativarModoNecessidade(nec, idx, marker));
+    layer.addLayer(marker);
+  });
+
+  layer.addTo(state.map);
+  state.layers.necessidades = layer;
+}
+
+function popupNecessidade(nec, idx) {
+  return `
+    <div class="popup-card">
+      <div class="popup-header"><span class="popup-badge" style="background:rgba(59,130,246,0.15);color:#3b82f6">Sugestão</span><strong>Novo representante #${idx + 1}</strong></div>
+      <div class="popup-row"><span>Prospects no raio</span><span>${nec.prospects.length}</span></div>
+      <div class="popup-row"><span>Região de referência</span><span>${nec.municipio_ref || '—'}</span></div>
+      <div class="popup-row" style="margin-top:8px"><span colspan="2" style="color:#94a3b8;font-size:11px">Clique no ícone para ver os clientes</span></div>
+    </div>`;
+}
+
+function renderNecessidadesBanner() {
+  const banner = document.getElementById('necessidades-banner');
+  const texto = document.getElementById('necessidades-texto');
+  const n = state.necessidades.length;
+
+  if (!n) {
+    banner.classList.remove('show');
+    return;
+  }
+
+  const totalProspects = state.necessidades.reduce((s, x) => s + x.prospects.length, 0);
+  texto.innerHTML = `Sugerimos <strong>${n}</strong> ${n === 1 ? 'novo representante' : 'novos representantes'} para cobrir <strong>${totalProspects}</strong> prospects que ficam a mais de ${RAIO_PADRAO_KM}km de qualquer representante atual (já descontada a área que os representantes existentes cobrem).`;
+  banner.classList.add('show');
 }
 
 function limparLayersAnteriores() {
-  ['clientes', 'prospects', 'representantes', 'propostos', 'raioCircle', 'rota'].forEach(key => {
+  ['clientes', 'prospects', 'representantes', 'necessidades', 'raioCircle', 'rota'].forEach(key => {
     if (state.layers[key]) {
       state.map.removeLayer(state.layers[key]);
       state.layers[key] = null;
@@ -337,6 +355,7 @@ function limparLayersAnteriores() {
   state.layers.highlight.forEach(l => state.map.removeLayer(l));
   state.layers.highlight = [];
   state.repAtivo = null;
+  state.pontoAtivo = null;
 }
 
 // ============================================================
@@ -402,10 +421,12 @@ function novaBusca() {
   document.getElementById('input-regiao').value = '';
   limparLayersAnteriores();
   fecharDrawer();
+  document.getElementById('necessidades-banner').classList.remove('show');
   state.dados = null;
-  state.propostos = [];
+  state.necessidades = [];
 }
 
+// ── Stats ──
 function renderStats() {
   const { clientes, prospects, representantes } = state.dados;
   const ativos = clientes.filter(c => c.ativo == 1).length;
@@ -417,20 +438,23 @@ function renderStats() {
   document.getElementById('stat-reps').textContent = representantes.length;
 }
 
+// ── Oportunidades ──
 function renderOportunidades() {
   const { clientes, prospects, representantes } = state.dados;
   const inativos = clientes.filter(c => c.ativo == 0);
 
+  // Prospects sem representante a < 200km
   let prospectsSemCob = 0;
   prospects.forEach(p => {
     const temCob = representantes.some(r => haversine(p.lat, p.lng, r.lat, r.lng) <= RAIO_PADRAO_KM);
     if (!temCob) prospectsSemCob++;
   });
 
+  // Rep com mais inativos
   const contInativosPorRep = {};
   inativos.forEach(c => {
     const k = c.cd_representant;
-    if (k) contInativosPorRep[k] = (contInativosPorRep[k] || 0) + 1;
+    contInativosPorRep[k] = (contInativosPorRep[k] || 0) + 1;
   });
   let repMaisInativos = { nome: '—', qtd: 0 };
   Object.entries(contInativosPorRep).forEach(([cd, qtd]) => {
@@ -439,25 +463,42 @@ function renderOportunidades() {
     }
   });
 
-  const qtdNecessarios = state.propostos.length;
+  // Município com mais prospects sem cobertura
+  const contMunic = {};
+  prospects.forEach(p => {
+    const temCob = representantes.some(r => haversine(p.lat, p.lng, r.lat, r.lng) <= RAIO_PADRAO_KM);
+    if (!temCob) {
+      const m = p.municipio_uf || p.municipio || 'Desconhecido';
+      contMunic[m] = (contMunic[m] || 0) + 1;
+    }
+  });
+  let municTop = '—';
+  let municTopQtd = 0;
+  Object.entries(contMunic).forEach(([m, q]) => {
+    if (q > municTopQtd) { municTop = m; municTopQtd = q; }
+  });
 
   const el = document.getElementById('oportunidades');
   el.innerHTML = `
-    <div class="op-item">
-      <span class="op-icon" style="color:#3b82f6">👤</span>
-      <span>Precisamos de <strong>${qtdNecessarios}</strong> novos representantes para cobrir as áreas sem atendimento.</span>
-    </div>
     <div class="op-item">
       <span class="op-icon" style="color:#ef4444">↻</span>
       <span><strong>${inativos.length}</strong> clientes inativos — potencial de reativação</span>
     </div>
     <div class="op-item">
       <span class="op-icon" style="color:#3b82f6">◎</span>
-      <span><strong>${prospectsSemCob}</strong> prospects fora de zonas comerciais ativas</span>
+      <span><strong>${prospectsSemCob}</strong> prospects sem representante a menos de ${RAIO_PADRAO_KM} km</span>
+    </div>
+    <div class="op-item">
+      <span class="op-icon" style="color:#3b82f6">👤</span>
+      <span><strong>${state.necessidades.length}</strong> ${state.necessidades.length === 1 ? 'novo representante sugerido' : 'novos representantes sugeridos'} (bonecos azuis no mapa)</span>
     </div>
     <div class="op-item">
       <span class="op-icon" style="color:#f59e0b">⚠</span>
       <span>Rep com mais inativos: <strong>${repMaisInativos.nome}</strong> (${repMaisInativos.qtd})</span>
+    </div>
+    <div class="op-item">
+      <span class="op-icon" style="color:#a78bfa">📍</span>
+      <span>Município com mais prospects sem cobertura: <strong>${municTop}</strong></span>
     </div>`;
 }
 
@@ -552,66 +593,59 @@ function focarMarcador(lat, lng) {
 }
 
 // ============================================================
-// MODO REPRESENTANTE (REAL)
+// MODO REPRESENTANTE (raio + drawer)
 // ============================================================
 function ativarModoRep(rep, marker) {
   limparModoRep();
   state.repAtivo = rep;
+  state.necessidadeAtiva = null;
 
   const cor = rep.cor || '#F59E0B';
-
-  const circle = L.circle([rep.lat, rep.lng], {
-    radius: RAIO_PADRAO_KM * 1000,
-    color: cor,
-    fillColor: cor,
-    fillOpacity: 0.08,
-    weight: 2,
-    dashArray: '6 4'
-  }).addTo(state.map);
-  state.layers.raioCircle = circle;
+  desenharRaio(rep.lat, rep.lng, cor);
 
   const { clientes, prospects } = state.dados;
-  const clientesNoRaio = clientes.filter(c => haversine(c.lat, c.lng, rep.lat, rep.lng) <= RAIO_PADRAO_KM);
-  const prospNoRaio = prospects.filter(p => haversine(p.lat, p.lng, rep.lat, rep.lng) <= RAIO_PADRAO_KM);
+  const clientesNoRaio = clientes.filter(c =>
+    haversine(c.lat, c.lng, rep.lat, rep.lng) <= RAIO_PADRAO_KM
+  );
+  const prospNoRaio = prospects.filter(p =>
+    haversine(p.lat, p.lng, rep.lat, rep.lng) <= RAIO_PADRAO_KM
+  );
 
-  clientesNoRaio.forEach(c => {
-    const hl = L.circleMarker([c.lat, c.lng], {
-      radius: 9,
-      fillColor: c.ativo == 1 ? '#22c55e' : '#ef4444',
-      color: '#ffffff',
-      weight: 2.5,
-      fillOpacity: 0.9
-    }).addTo(state.map);
-    hl.bindPopup(popupCliente(c));
-    state.layers.highlight.push(hl);
-  });
+  destacarPontos(clientesNoRaio, prospNoRaio);
 
-  prospNoRaio.forEach(p => {
-    const hl = L.marker([p.lat, p.lng], {
-      icon: L.divIcon({
-        html: svgEstrela('#60a5fa', true),
-        className: '',
-        iconSize: [22, 22],
-        iconAnchor: [11, 11]
-      })
-    }).addTo(state.map);
-    hl.bindPopup(popupProspect(p));
-    state.layers.highlight.push(hl);
-  });
+  state.pontoAtivo = {
+    lat: rep.lat, lng: rep.lng, cor,
+    nome: rep.fantasia, subtitulo: rep.divisao,
+    tipo: 'rep'
+  };
 
-  abrirDrawer(rep, clientesNoRaio, prospNoRaio);
+  abrirDrawer({ clientesNoRaio, prospNoRaio });
 }
 
 // ============================================================
-// MODO REPRESENTANTE PROPOSTO (BONECO AZUL)
+// MODO NECESSIDADE (sugestão de novo representante — boneco azul)
 // ============================================================
-function ativarModoRepProposto(prop, marker) {
+function ativarModoNecessidade(nec, idx, marker) {
   limparModoRep();
-  state.repAtivo = prop;
+  state.repAtivo = null;
+  state.necessidadeAtiva = nec;
 
   const cor = '#3b82f6';
+  desenharRaio(nec.lat, nec.lng, cor);
+  destacarPontos([], nec.prospects);
 
-  const circle = L.circle([prop.lat, prop.lng], {
+  state.pontoAtivo = {
+    lat: nec.lat, lng: nec.lng, cor,
+    nome: `Sugestão de representante #${idx + 1}`,
+    subtitulo: `Região de referência: ${nec.municipio_ref || '—'}`,
+    tipo: 'necessidade'
+  };
+
+  abrirDrawer({ clientesNoRaio: [], prospNoRaio: nec.prospects });
+}
+
+function desenharRaio(lat, lng, cor) {
+  const circle = L.circle([lat, lng], {
     radius: RAIO_PADRAO_KM * 1000,
     color: cor,
     fillColor: cor,
@@ -620,10 +654,9 @@ function ativarModoRepProposto(prop, marker) {
     dashArray: '6 4'
   }).addTo(state.map);
   state.layers.raioCircle = circle;
+}
 
-  const clientesNoRaio = prop.itensNoRaio.filter(i => i.tipo === 'Cliente').map(i => i.dados);
-  const prospNoRaio = prop.itensNoRaio.filter(i => i.tipo === 'Prospect').map(i => i.dados);
-
+function destacarPontos(clientesNoRaio, prospNoRaio) {
   clientesNoRaio.forEach(c => {
     const hl = L.circleMarker([c.lat, c.lng], {
       radius: 9,
@@ -648,8 +681,6 @@ function ativarModoRepProposto(prop, marker) {
     hl.bindPopup(popupProspect(p));
     state.layers.highlight.push(hl);
   });
-
-  abrirDrawer(prop, clientesNoRaio, prospNoRaio);
 }
 
 function limparModoRep() {
@@ -665,19 +696,28 @@ function limparModoRep() {
   state.layers.highlight = [];
 }
 
-function abrirDrawer(rep, clientesNoRaio, prospNoRaio) {
-  const cor = rep.cor || '#F59E0B';
+function abrirDrawer({ clientesNoRaio, prospNoRaio }) {
+  const ponto = state.pontoAtivo;
   const ativosNoRaio = clientesNoRaio.filter(c => c.ativo == 1);
   const inativosNoRaio = clientesNoRaio.filter(c => c.ativo == 0);
 
-  document.getElementById('drawer-avatar').style.borderColor = cor;
-  document.getElementById('drawer-nome').textContent = rep.nome_completo || rep.fantasia;
-  document.getElementById('drawer-divisao').textContent = rep.divisao;
+  document.getElementById('drawer-avatar').style.borderColor = ponto.cor;
+  document.getElementById('drawer-avatar').textContent = ponto.tipo === 'necessidade' ? '🔵' : '👤';
+  document.getElementById('drawer-nome').textContent = ponto.nome;
+  document.getElementById('drawer-divisao').textContent = ponto.subtitulo || '';
 
   document.getElementById('drawer-ativos').textContent = ativosNoRaio.length;
   document.getElementById('drawer-inativos').textContent = inativosNoRaio.length;
   document.getElementById('drawer-prosp-raio').textContent = prospNoRaio.length;
 
+  // Em modo necessidade não há clientes ativos/inativos vinculados — esconde os cards
+  const modoNecessidade = ponto.tipo === 'necessidade';
+  document.querySelectorAll('.ds-verde, .ds-vermelho').forEach(el => {
+    el.style.display = modoNecessidade ? 'none' : '';
+  });
+  document.getElementById('btn-rota-csv').style.display = modoNecessidade ? 'none' : 'block';
+
+  // Guarda para rota/CSV/Excel
   state._ativosNoRaio = ativosNoRaio;
   state._inativosNoRaio = inativosNoRaio;
   state._prospNoRaio = prospNoRaio;
@@ -689,94 +729,126 @@ function fecharDrawer() {
   document.getElementById('drawer').classList.remove('aberto');
   limparModoRep();
   state.repAtivo = null;
+  state.necessidadeAtiva = null;
+  state.pontoAtivo = null;
 }
 
 // ============================================================
-// ROTA + EXPORTAR EXCEL (.XLS NATIVO)
+// ROTA + EXPORTAR (CSV / Excel)
 // ============================================================
-function rotaEExcel() {
-  const rep = state.repAtivo;
-  if (!rep) return;
+function listaOrdenadaPorDistancia() {
+  const ponto = state.pontoAtivo;
+  if (!ponto) return [];
 
   const ativos = state._ativosNoRaio || [];
   const inativos = state._inativosNoRaio || [];
   const prosp = state._prospNoRaio || [];
 
-  // Mapear e calcular distâncias reais de forma centralizada
-  const todos = [
-    ...ativos.map(c => ({ ...c, _tipo: 'Cliente Ativo', _dist: haversine(c.lat, c.lng, rep.lat, rep.lng) })),
-    ...inativos.map(c => ({ ...c, _tipo: 'Cliente Inativo', _dist: haversine(c.lat, c.lng, rep.lat, rep.lng) })),
-    ...prosp.map(p => ({ ...p, _tipo: 'Prospect', _dist: haversine(p.lat, p.lng, rep.lat, rep.lng) }))
-  ].sort((a, b) => a._dist - b._dist); // Ordenação do mais perto para o mais distante
+  return [
+    ...ativos.map(c => ({ ...c, _tipo: 'Ativo', _dist: haversine(c.lat, c.lng, ponto.lat, ponto.lng) })),
+    ...inativos.map(c => ({ ...c, _tipo: 'Inativo', _dist: haversine(c.lat, c.lng, ponto.lat, ponto.lng) })),
+    ...prosp.map(p => ({ ...p, _tipo: 'Prospect', _dist: haversine(p.lat, p.lng, ponto.lat, ponto.lng) }))
+  ].sort((a, b) => a._dist - b._dist);
+}
 
-  // Plotar linha visual da rota recomendada
+function rotaECsv() {
+  const ponto = state.pontoAtivo;
+  if (!ponto) return;
+
+  const todos = listaOrdenadaPorDistancia();
+
+  // Rota no mapa
   if (state.layers.rota) state.map.removeLayer(state.layers.rota);
-  const pontos = [[rep.lat, rep.lng], ...todos.map(t => [t.lat, t.lng])];
+  const pontos = [[ponto.lat, ponto.lng], ...todos.map(t => [t.lat, t.lng])];
   state.layers.rota = L.polyline(pontos, {
-    color: rep.cor || '#F59E0B',
+    color: ponto.cor || '#F59E0B',
     weight: 2.5,
     opacity: 0.7,
     dashArray: '8 4'
   }).addTo(state.map);
 
-  // Montar Arquivo XML/HTML nativo para compatibilidade perfeita com o Excel (.xls)
-  let excelTemplate = `
-    <html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel" xmlns="http://www.w3.org/TR/REC-html40">
-    <head>
-      <meta charset="utf-8"/>
-      <style>
-        .header { background-color: #1e2535; color: #ffffff; font-weight: bold; text-align: center; }
-        .title { font-size: 16px; font-weight: bold; text-align: center; padding: 10px; }
-        td { border: 0.5pt solid #cbd5e1; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; font-size: 11px; }
-      </style>
-    </head>
-    <body>
-      <table>
-        <tr><td colspan="6" class="title">GESTÃO COMERCIAL — PLANEJAR COBERTURA DE VENDAS</td></tr>
-        <tr><td colspan="6"><b>Ponto de Referência / Origem:</b> ${rep.nome_completo || rep.fantasia} (${rep.municipio}/${rep.uf})</td></tr>
-        <tr></tr>
-        <tr class="header">
-          <td style="width:150px;">Município</td>
-          <td style="width:120px;">Tipo</td>
-          <td style="width:140px;">CNPJ / CPF</td>
-          <td style="width:250px;">Nome / Razão Social</td>
-          <td style="width:120px;">Celular / Telefone</td>
-          <td style="width:100px;">Distância (km)</td>
-        </tr>
-  `;
-
-  todos.forEach(item => {
-    const municipio = item.municipio || item.municipio_uf || '—';
-    const tipo = item._tipo;
-    const identificador = item.cnpj_cpf || item.cnpj || '—';
-    const nome = item.fantasia || item.nome_completo || item.nome || '—';
-    const contato = item.fone || item.telefone1 || '—';
-    const distancia = item._dist.toFixed(1);
-
-    excelTemplate += `
-      <tr>
-        <td>${municipio}</td>
-        <td>${tipo}</td>
-        <td style="mso-number-format:'\\@';">${identificador}</td>
-        <td>${nome}</td>
-        <td style="mso-number-format:'\\@';">${contato}</td>
-        <td style="text-align:right;">${distancia} km</td>
-      </tr>
-    `;
+  // CSV
+  const linhas = [['Bairro_Municipio', 'Nome', 'CNPJ_CPF', 'Telefone', 'Contato', 'Municipio', 'UF', 'Status', 'Distancia_km']];
+  todos.forEach(t => {
+    if (t._tipo === 'Prospect') {
+      linhas.push([t.municipio_uf || t.municipio || '', t.nome, t.cnpj, t.telefone1, '', t.municipio, t.uf, 'Prospect', t._dist.toFixed(1)]);
+    } else {
+      linhas.push([t.bairro || t.municipio || '', t.fantasia || t.nome_completo, t.cnpj_cpf, t.fone, t.contato, t.municipio, t.uf, t._tipo, t._dist.toFixed(1)]);
+    }
   });
 
-  excelTemplate += `</table></body></html>`;
+  const csv = linhas.map(l => l.map(v => `"${(v || '').toString().replace(/"/g, '""')}"`).join(',')).join('\n');
+  downloadCSV(csv, `rota_${ponto.nome.replace(/\s+/g, '_')}.csv`);
+}
 
-  const blob = new Blob([excelTemplate], { type: 'application/vnd.ms-excel;charset=utf-8;' });
+function downloadCSV(conteudo, nome) {
+  const blob = new Blob(['\uFEFF' + conteudo], { type: 'text/csv;charset=utf-8;' });
   const url = URL.createObjectURL(blob);
-  const link = document.createElement('a');
-  link.href = url;
-  link.download = `rota_${(rep.fantasia || 'expansao').replace(/\s+/g, '_')}.xls`;
-  link.click();
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = nome;
+  a.click();
   URL.revokeObjectURL(url);
 }
 
-// ============================================================
+// ── Exportar Excel (.xlsx) — agrupado por Bairro/Município, ordenado por distância ──
+function exportarExcel() {
+  const ponto = state.pontoAtivo;
+  if (!ponto) return;
+
+  if (typeof XLSX === 'undefined') {
+    alert('Biblioteca de exportação Excel não carregou. Verifique sua conexão e tente novamente.');
+    return;
+  }
+
+  const todos = listaOrdenadaPorDistancia();
+  if (!todos.length) {
+    alert('Não há clientes/prospects no raio para exportar.');
+    return;
+  }
+
+  // Agrupa por Bairro (clientes) ou Município (prospects, que não têm bairro cadastrado)
+  const grupos = {};
+  todos.forEach(t => {
+    const chave = t._tipo === 'Prospect'
+      ? (t.municipio_uf || `${t.municipio || '—'}/${t.uf || ''}`)
+      : (t.bairro || t.municipio || '—');
+    if (!grupos[chave]) grupos[chave] = [];
+    grupos[chave].push(t);
+  });
+
+  // Cada grupo já ordenado por distância (herdado da lista geral); reordena por garantia
+  Object.values(grupos).forEach(arr => arr.sort((a, b) => a._dist - b._dist));
+
+  const linhas = [['Bairro / Município', 'Tipo', 'Nome', 'CNPJ/CPF', 'Celular', 'Cidade/UF', 'Distância (km)']];
+
+  Object.keys(grupos).sort().forEach(chave => {
+    grupos[chave].forEach(t => {
+      const nome = t._tipo === 'Prospect' ? t.nome : (t.fantasia || t.nome_completo);
+      const doc = t._tipo === 'Prospect' ? t.cnpj : t.cnpj_cpf;
+      const celular = t._tipo === 'Prospect' ? (t.telefone1 || t.telefone2 || '') : (t.fone || '');
+      const cidadeUf = t._tipo === 'Prospect' ? (t.municipio_uf || `${t.municipio}/${t.uf}`) : `${t.municipio}/${t.uf}`;
+      linhas.push([chave, t._tipo, nome || '', doc || '', celular || '', cidadeUf || '', Number(t._dist.toFixed(1))]);
+    });
+  });
+
+  const ws = XLSX.utils.aoa_to_sheet(linhas);
+  ws['!cols'] = [{ wch: 24 }, { wch: 10 }, { wch: 30 }, { wch: 18 }, { wch: 16 }, { wch: 20 }, { wch: 14 }];
+
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'Clientes e Prospects');
+
+  // Aba-resumo por bairro/município
+  const resumoLinhas = [['Bairro / Município', 'Qtd. Clientes/Prospects']];
+  Object.keys(grupos).sort().forEach(chave => resumoLinhas.push([chave, grupos[chave].length]));
+  const wsResumo = XLSX.utils.aoa_to_sheet(resumoLinhas);
+  wsResumo['!cols'] = [{ wch: 28 }, { wch: 20 }];
+  XLSX.utils.book_append_sheet(wb, wsResumo, 'Resumo por Bairro');
+
+  XLSX.writeFile(wb, `representacao_${ponto.nome.replace(/\s+/g, '_')}.xlsx`);
+}
+
+
 // ÍCONES SVG
 // ============================================================
 function svgEstrela(cor, borda = false) {
@@ -795,8 +867,10 @@ function svgBoneco(cor) {
 }
 
 // ============================================================
-// UTILITÁRIOS: DISTÂNCIA HAVERSINE (KM)
+// UTILITÁRIOS
 // ============================================================
+
+// Distância Haversine em km
 function haversine(lat1, lng1, lat2, lng2) {
   const R = 6371;
   const dLat = (lat2 - lat1) * Math.PI / 180;
