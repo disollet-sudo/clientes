@@ -5,10 +5,15 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Gestão Comercial — Vendas Externas</title>
 
+  <!-- Leaflet -->
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
   <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.css" />
   <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.Default.css" />
 
+  <!-- SheetJS (exportação Excel) -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+
+  <!-- Google Fonts -->
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
@@ -306,6 +311,44 @@
     .stat-azul .stat-num { color: var(--azul); }
     .stat-amarelo .stat-num { color: var(--amarelo); }
 
+    /* Banner de necessidades de representante */
+    #necessidades-banner {
+      margin: 0 16px 12px;
+      padding: 10px 12px;
+      border-radius: var(--radius);
+      background: rgba(59,130,246,0.12);
+      border: 1px solid rgba(59,130,246,0.35);
+      font-size: 12px;
+      line-height: 1.5;
+      color: var(--text);
+      display: none;
+      flex-shrink: 0;
+      gap: 8px;
+      align-items: flex-start;
+    }
+    #necessidades-banner.show { display: flex; }
+    #necessidades-banner .nb-icon { font-size: 16px; flex-shrink: 0; }
+    #necessidades-banner strong { color: var(--azul); }
+
+    /* Badge de contagem no boneco azul (necessidade) */
+    .boneco-badge {
+      position: absolute;
+      top: -4px;
+      right: -4px;
+      background: #fff;
+      color: #1d4ed8;
+      border-radius: 50%;
+      min-width: 16px;
+      height: 16px;
+      font-size: 9px;
+      font-weight: 700;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      border: 1.5px solid #1d4ed8;
+      padding: 0 2px;
+    }
+
     /* Oportunidades */
     .op-titulo {
       font-size: 11px;
@@ -475,8 +518,8 @@
     .badge-mini.ativo { background: rgba(34,197,94,0.15); color: var(--verde); }
     .badge-mini.inativo { background: rgba(239,68,68,0.15); color: var(--vermelho); }
 
-    /* ─── Drawers (Representante e Município) ────────────────── */
-    #drawer, #drawer-municipio {
+    /* ─── Drawer representante ──────────────────────────────── */
+    #drawer {
       position: fixed;
       bottom: calc(-1 * var(--drawer-h));
       left: var(--painel-w);
@@ -492,7 +535,7 @@
       padding: 16px 20px;
     }
 
-    #drawer.aberto, #drawer-municipio.aberto {
+    #drawer.aberto {
       bottom: 0;
     }
 
@@ -521,17 +564,17 @@
       min-width: 0;
     }
 
-    #drawer-nome, #drawer-mun-nome {
+    #drawer-nome {
       font-size: 15px;
       font-weight: 700;
     }
 
-    #drawer-divisao, #drawer-mun-divisao {
+    #drawer-divisao {
       font-size: 12px;
       color: var(--muted);
     }
 
-    #btn-fechar-drawer, #btn-fechar-drawer-mun {
+    #btn-fechar-drawer {
       background: none;
       border: none;
       color: var(--muted);
@@ -574,21 +617,28 @@
     .ds-azul .ds-num { color: var(--azul); }
     .ds-amarelo .ds-num { color: var(--amarelo); }
 
-    #btn-rota-csv {
+    #drawer-botoes { display: flex; gap: 8px; }
+
+    #btn-rota-csv, #btn-excel {
       background: var(--accent);
       color: #fff;
       border: none;
       border-radius: var(--radius);
-      padding: 10px 18px;
-      font-size: 13px;
+      padding: 10px 14px;
+      font-size: 12.5px;
       font-weight: 600;
       font-family: inherit;
       cursor: pointer;
-      width: 100%;
+      flex: 1;
       transition: opacity 0.2s;
+      white-space: nowrap;
     }
 
-    #btn-rota-csv:hover { opacity: 0.85; }
+    #btn-excel {
+      background: #15803d;
+    }
+
+    #btn-rota-csv:hover, #btn-excel:hover { opacity: 0.85; }
 
     /* ─── Popups Leaflet ────────────────────────────────────── */
     .leaflet-popup-content-wrapper {
@@ -632,7 +682,6 @@
     .popup-badge.inativo { background: rgba(239,68,68,0.15); color: var(--vermelho); }
     .popup-badge.prospect { background: rgba(59,130,246,0.15); color: var(--azul); }
     .popup-badge.rep { background: rgba(245,158,11,0.15); color: var(--amarelo); }
-    .popup-badge.sem-cob { background: rgba(239,68,68,0.15); color: var(--vermelho); }
 
     .popup-row {
       display: flex;
@@ -681,7 +730,7 @@
         --drawer-h: 240px;
       }
 
-      #drawer, #drawer-municipio {
+      #drawer {
         left: 0;
       }
 
@@ -701,7 +750,7 @@
         left: 0;
       }
 
-      #drawer.aberto, #drawer-municipio.aberto {
+      #drawer.aberto {
         bottom: 60vh;
       }
     }
@@ -710,13 +759,16 @@
 
 <body>
 
+  <!-- Mapa fullscreen -->
   <div id="map"></div>
 
+  <!-- Loading -->
   <div id="loading">
     <div class="spinner"></div>
     <p>Carregando dados da região…</p>
   </div>
 
+  <!-- Card de busca -->
   <div id="card-busca">
     <div class="busca-box">
       <div class="busca-logo">
@@ -742,6 +794,7 @@
     </div>
   </div>
 
+  <!-- Painel lateral -->
   <div id="painel">
     <div class="painel-header">
       <div id="painel-titulo">—</div>
@@ -767,6 +820,11 @@
       </div>
     </div>
 
+    <div id="necessidades-banner">
+      <span class="nb-icon">🔵</span>
+      <span id="necessidades-texto"></span>
+    </div>
+
     <div class="op-titulo">Oportunidades na região</div>
     <div id="oportunidades"></div>
 
@@ -777,6 +835,7 @@
     </div>
 
     <div class="tabs-body">
+      <!-- Aba Clientes -->
       <div class="tab-content active" id="tab-clientes">
         <div class="tab-filtro">
           <input type="text" id="filtro-clientes" placeholder="Filtrar clientes…" />
@@ -784,6 +843,7 @@
         <div class="tab-lista" id="lista-clientes"></div>
       </div>
 
+      <!-- Aba Prospects -->
       <div class="tab-content" id="tab-prospects">
         <div class="tab-filtro">
           <input type="text" id="filtro-prospects" placeholder="Filtrar prospects…" />
@@ -791,6 +851,7 @@
         <div class="tab-lista" id="lista-prospects"></div>
       </div>
 
+      <!-- Aba Representantes -->
       <div class="tab-content" id="tab-reps">
         <div class="tab-filtro">
           <input type="text" id="filtro-representantes" placeholder="Filtrar representantes…" />
@@ -800,6 +861,7 @@
     </div>
   </div>
 
+  <!-- Drawer representante -->
   <div id="drawer">
     <div class="drawer-header">
       <div id="drawer-avatar">👤</div>
@@ -827,41 +889,16 @@
         <div class="ds-label">km raio</div>
       </div>
     </div>
-    <button id="btn-rota-csv">🗺 Ver rota + Exportar Planilha (.xlsx)</button>
-  </div>
-
-  <div id="drawer-municipio">
-    <div class="drawer-header">
-      <div id="drawer-avatar">📍</div>
-      <div class="drawer-info">
-        <div id="drawer-mun-nome">—</div>
-        <div id="drawer-mun-divisao" style="color: var(--vermelho);">Município sem cobertura comercial</div>
-      </div>
-      <button id="btn-fechar-drawer-mun">✕</button>
-    </div>
-    <div class="drawer-stats">
-      <div class="drawer-stat ds-vermelho">
-        <div class="ds-num" id="drawer-mun-inativos">0</div>
-        <div class="ds-label">Inativos</div>
-      </div>
-      <div class="drawer-stat ds-azul">
-        <div class="ds-num" id="drawer-mun-prospects">0</div>
-        <div class="ds-label">Prospects</div>
-      </div>
-      <div class="drawer-stat ds-amarelo">
-        <div class="ds-num" id="drawer-mun-total">0</div>
-        <div class="ds-label">Oportunidades</div>
-      </div>
+    <div id="drawer-botoes">
+      <button id="btn-rota-csv">🗺 Rota + CSV</button>
+      <button id="btn-excel">📊 Exportar Excel</button>
     </div>
   </div>
 
+  <!-- Scripts -->
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
   <script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"></script>
-  
-  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
-  
-  <script src="api.js"></script>
-  
+  <script src="app.js"></script>
   <script>
     function sugerir(termo) {
       document.getElementById('input-regiao').value = termo;
