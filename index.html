@@ -8,275 +8,722 @@
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
   <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.css" />
   <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.Default.css" />
+
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
 
   <style>
+    /* ─── Reset & Base ─────────────────────────────────────── */
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
     :root {
-      --bg:       #0f1117;
-      --surface:  #161b27;
-      --surface2: #1e2535;
-      --border:   #2a3347;
-      --text:     #e2e8f0;
-      --muted:    #64748b;
-      --accent:   #3b82f6;
-      --verde:    #22c55e;
-      --vermelho: #ef4444;
-      --azul:     #3b82f6;
-      --amarelo:  #f59e0b;
-      --painel-w: 340px;
-      --radius:   10px;
+      --bg:        #0f1117;
+      --surface:   #161b27;
+      --surface2:  #1e2535;
+      --border:    #2a3347;
+      --text:      #e2e8f0;
+      --muted:     #64748b;
+      --accent:    #3b82f6;
+
+      --verde:     #22c55e;
+      --vermelho:  #ef4444;
+      --azul:      #3b82f6;
+      --amarelo:   #f59e0b;
+
+      --painel-w:  340px;
+      --drawer-h:  220px;
+      --radius:    10px;
     }
 
-    html, body { height: 100%; font-family: 'Inter', sans-serif; background: var(--bg); color: var(--text); overflow: hidden; }
+    html, body {
+      height: 100%;
+      font-family: 'Inter', sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      overflow: hidden;
+    }
 
-    #map { position: fixed; inset: 0; z-index: 1; }
+    /* ─── Mapa fullscreen ───────────────────────────────────── */
+    #map {
+      position: fixed;
+      inset: 0;
+      z-index: 1;
+    }
 
-    /* ── Card busca ── */
+    /* ─── Card de busca inicial ─────────────────────────────── */
     #card-busca {
-      position: fixed; inset: 0; z-index: 100;
-      display: flex; align-items: center; justify-content: center;
-      background: rgba(15,17,23,0.72); backdrop-filter: blur(6px);
+      position: fixed;
+      inset: 0;
+      z-index: 100;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: rgba(15, 17, 23, 0.72);
+      backdrop-filter: blur(6px);
     }
+
     .busca-box {
-      background: var(--surface); border: 1px solid var(--border);
-      border-radius: 16px; padding: 36px 32px; width: min(440px, 92vw);
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 36px 32px;
+      width: min(440px, 92vw);
       box-shadow: 0 24px 64px rgba(0,0,0,0.6);
     }
-    .busca-logo { display: flex; align-items: center; gap: 10px; margin-bottom: 24px; }
-    .busca-logo-icon { width: 36px; height: 36px; background: var(--accent); border-radius: 8px; display: flex; align-items: center; justify-content: center; font-size: 18px; }
-    .busca-logo-text { font-size: 15px; font-weight: 600; }
-    .busca-logo-text small { display: block; font-size: 11px; font-weight: 400; color: var(--muted); }
-    .busca-box h2 { font-size: 20px; font-weight: 700; margin-bottom: 6px; }
-    .busca-box p { font-size: 13px; color: var(--muted); margin-bottom: 20px; }
-    .busca-input-row { display: flex; gap: 8px; }
+
+    .busca-logo {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 24px;
+    }
+
+    .busca-logo-icon {
+      width: 36px;
+      height: 36px;
+      background: var(--accent);
+      border-radius: 8px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 18px;
+    }
+
+    .busca-logo-text {
+      font-size: 15px;
+      font-weight: 600;
+      color: var(--text);
+      line-height: 1.2;
+    }
+
+    .busca-logo-text small {
+      display: block;
+      font-size: 11px;
+      font-weight: 400;
+      color: var(--muted);
+    }
+
+    .busca-box h2 {
+      font-size: 20px;
+      font-weight: 700;
+      margin-bottom: 6px;
+    }
+
+    .busca-box p {
+      font-size: 13px;
+      color: var(--muted);
+      margin-bottom: 20px;
+    }
+
+    .busca-input-row {
+      display: flex;
+      gap: 8px;
+    }
+
     #input-regiao {
-      flex: 1; background: var(--bg); border: 1px solid var(--border);
-      border-radius: var(--radius); color: var(--text); padding: 10px 14px;
-      font-size: 14px; font-family: inherit; outline: none; transition: border-color .2s;
+      flex: 1;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      color: var(--text);
+      padding: 10px 14px;
+      font-size: 14px;
+      font-family: inherit;
+      outline: none;
+      transition: border-color 0.2s;
     }
-    #input-regiao:focus { border-color: var(--accent); }
-    #input-regiao::placeholder { color: var(--muted); }
+
+    #input-regiao:focus {
+      border-color: var(--accent);
+    }
+
+    #input-regiao::placeholder {
+      color: var(--muted);
+    }
+
     #btn-buscar {
-      background: var(--accent); color: #fff; border: none; border-radius: var(--radius);
-      padding: 10px 18px; font-size: 14px; font-weight: 600; font-family: inherit;
-      cursor: pointer; transition: opacity .2s; white-space: nowrap;
+      background: var(--accent);
+      color: #fff;
+      border: none;
+      border-radius: var(--radius);
+      padding: 10px 18px;
+      font-size: 14px;
+      font-weight: 600;
+      font-family: inherit;
+      cursor: pointer;
+      transition: opacity 0.2s;
+      white-space: nowrap;
     }
-    #btn-buscar:hover { opacity: .85; }
-    #btn-buscar:disabled { opacity: .5; cursor: not-allowed; }
-    .busca-sugestoes { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 12px; }
+
+    #btn-buscar:hover { opacity: 0.85; }
+    #btn-buscar:disabled { opacity: 0.5; cursor: not-allowed; }
+
+    .busca-sugestoes {
+      display: flex;
+      gap: 6px;
+      flex-wrap: wrap;
+      margin-top: 12px;
+    }
+
     .sug-chip {
-      background: var(--surface2); border: 1px solid var(--border); border-radius: 20px;
-      padding: 4px 10px; font-size: 11px; color: var(--muted); cursor: pointer; transition: color .2s, border-color .2s;
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: 20px;
+      padding: 4px 10px;
+      font-size: 11px;
+      color: var(--muted);
+      cursor: pointer;
+      transition: border-color 0.2s, color 0.2s;
     }
-    .sug-chip:hover { border-color: var(--accent); color: var(--text); }
 
-    /* ── Loading ── */
+    .sug-chip:hover {
+      border-color: var(--accent);
+      color: var(--text);
+    }
+
+    /* ─── Loading overlay ───────────────────────────────────── */
     #loading {
-      position: fixed; inset: 0; z-index: 200; display: none;
-      align-items: center; justify-content: center;
-      background: rgba(15,17,23,0.75); backdrop-filter: blur(4px);
-      flex-direction: column; gap: 16px;
+      position: fixed;
+      inset: 0;
+      z-index: 200;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      background: rgba(15, 17, 23, 0.75);
+      backdrop-filter: blur(4px);
+      flex-direction: column;
+      gap: 16px;
     }
-    .spinner { width: 40px; height: 40px; border: 3px solid var(--border); border-top-color: var(--accent); border-radius: 50%; animation: spin .8s linear infinite; }
-    @keyframes spin { to { transform: rotate(360deg); } }
-    #loading p { font-size: 14px; color: var(--muted); }
 
-    /* ── Painel lateral ── */
-    #painel {
-      position: fixed; top: 0; left: calc(-1 * var(--painel-w)); width: var(--painel-w); height: 100%;
-      z-index: 50; display: flex; flex-direction: column;
-      background: var(--surface); border-right: 1px solid var(--border);
-      transition: left .35s cubic-bezier(.4,0,.2,1); overflow: hidden;
+    .spinner {
+      width: 40px;
+      height: 40px;
+      border: 3px solid var(--border);
+      border-top-color: var(--accent);
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
     }
-    #painel.aberto { left: 0; }
+
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    #loading p {
+      font-size: 14px;
+      color: var(--muted);
+    }
+
+    /* ─── Painel lateral ────────────────────────────────────── */
+    #painel {
+      position: fixed;
+      top: 0;
+      left: calc(-1 * var(--painel-w));
+      width: var(--painel-w);
+      height: 100%;
+      z-index: 50;
+      display: flex;
+      flex-direction: column;
+      background: var(--surface);
+      border-right: 1px solid var(--border);
+      transition: left 0.35s cubic-bezier(0.4, 0, 0.2, 1);
+      overflow: hidden;
+    }
+
+    #painel.aberto {
+      left: 0;
+    }
 
     .painel-header {
-      padding: 18px 16px 14px; border-bottom: 1px solid var(--border);
-      display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-shrink: 0;
+      padding: 18px 16px 14px;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      flex-shrink: 0;
     }
-    #painel-titulo { font-size: 15px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-    #btn-nova-busca {
-      background: var(--surface2); border: 1px solid var(--border); border-radius: 7px;
-      color: var(--muted); padding: 5px 10px; font-size: 11px; font-family: inherit;
-      cursor: pointer; white-space: nowrap; transition: color .2s, border-color .2s;
-    }
-    #btn-nova-busca:hover { color: var(--text); border-color: var(--accent); }
 
-    .stats-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; padding: 12px 16px; flex-shrink: 0; }
-    .stat-card {
-      background: var(--surface2); border: 1px solid var(--border);
-      border-radius: var(--radius); padding: 10px 12px; display: flex; flex-direction: column; gap: 2px;
+    #painel-titulo {
+      font-size: 15px;
+      font-weight: 700;
+      color: var(--text);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
     }
-    .stat-card .stat-num { font-size: 22px; font-weight: 700; line-height: 1; }
-    .stat-card .stat-label { font-size: 10px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); }
+
+    #btn-nova-busca {
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: 7px;
+      color: var(--muted);
+      padding: 5px 10px;
+      font-size: 11px;
+      font-family: inherit;
+      cursor: pointer;
+      white-space: nowrap;
+      transition: color 0.2s, border-color 0.2s;
+    }
+
+    #btn-nova-busca:hover {
+      color: var(--text);
+      border-color: var(--accent);
+    }
+
+    /* Stats */
+    .stats-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+      padding: 12px 16px;
+      flex-shrink: 0;
+    }
+
+    .stat-card {
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 10px 12px;
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+    }
+
+    .stat-card .stat-num {
+      font-size: 22px;
+      font-weight: 700;
+      line-height: 1;
+    }
+
+    .stat-card .stat-label {
+      font-size: 10px;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: var(--muted);
+    }
+
     .stat-verde .stat-num { color: var(--verde); }
     .stat-vermelho .stat-num { color: var(--vermelho); }
     .stat-azul .stat-num { color: var(--azul); }
     .stat-amarelo .stat-num { color: var(--amarelo); }
 
-    .op-titulo { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); padding: 0 16px 6px; flex-shrink: 0; }
-    #oportunidades { padding: 0 16px 10px; display: flex; flex-direction: column; gap: 6px; flex-shrink: 0; }
-    .op-item { display: flex; align-items: flex-start; gap: 8px; font-size: 12px; line-height: 1.4; }
-    .op-icon { flex-shrink: 0; font-size: 14px; margin-top: 1px; }
+    /* Oportunidades */
+    .op-titulo {
+      font-size: 11px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: var(--muted);
+      padding: 0 16px 6px;
+      flex-shrink: 0;
+    }
 
-    .tabs-header { display: flex; border-bottom: 1px solid var(--border); flex-shrink: 0; }
+    #oportunidades {
+      padding: 0 16px 10px;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      flex-shrink: 0;
+    }
+
+    .op-item {
+      display: flex;
+      align-items: flex-start;
+      gap: 8px;
+      font-size: 12px;
+      color: var(--text);
+      line-height: 1.4;
+    }
+
+    .op-icon {
+      flex-shrink: 0;
+      font-size: 14px;
+      margin-top: 1px;
+    }
+
+    /* Abas */
+    .tabs-header {
+      display: flex;
+      border-bottom: 1px solid var(--border);
+      flex-shrink: 0;
+    }
+
     .tab-btn {
-      flex: 1; background: none; border: none; border-bottom: 2px solid transparent;
-      color: var(--muted); font-size: 12px; font-weight: 600; font-family: inherit;
-      padding: 10px 4px; cursor: pointer; transition: color .2s, border-color .2s;
-      text-transform: uppercase; letter-spacing: .04em;
+      flex: 1;
+      background: none;
+      border: none;
+      border-bottom: 2px solid transparent;
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 600;
+      font-family: inherit;
+      padding: 10px 4px;
+      cursor: pointer;
+      transition: color 0.2s, border-color 0.2s;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
     }
-    .tab-btn.active { color: var(--accent); border-bottom-color: var(--accent); }
-    .tab-btn:hover { color: var(--text); }
 
-    .tabs-body { flex: 1; overflow: hidden; position: relative; }
-    .tab-content { display: none; flex-direction: column; height: 100%; overflow: hidden; }
-    .tab-content.active { display: flex; }
-    .tab-filtro { padding: 8px 12px; flex-shrink: 0; border-bottom: 1px solid var(--border); }
-    .tab-filtro input {
-      width: 100%; background: var(--bg); border: 1px solid var(--border);
-      border-radius: 7px; color: var(--text); padding: 7px 10px; font-size: 12px; font-family: inherit; outline: none;
+    .tab-btn.active {
+      color: var(--accent);
+      border-bottom-color: var(--accent);
     }
+
+    .tab-btn:hover {
+      color: var(--text);
+    }
+
+    .tabs-body {
+      flex: 1;
+      overflow: hidden;
+      position: relative;
+    }
+
+    .tab-content {
+      display: none;
+      flex-direction: column;
+      height: 100%;
+      overflow: hidden;
+    }
+
+    .tab-content.active {
+      display: flex;
+    }
+
+    .tab-filtro {
+      padding: 8px 12px;
+      flex-shrink: 0;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .tab-filtro input {
+      width: 100%;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 7px;
+      color: var(--text);
+      padding: 7px 10px;
+      font-size: 12px;
+      font-family: inherit;
+      outline: none;
+    }
+
     .tab-filtro input:focus { border-color: var(--accent); }
     .tab-filtro input::placeholder { color: var(--muted); }
 
-    .tab-lista { flex: 1; overflow-y: auto; padding: 6px 8px; }
+    .tab-lista {
+      flex: 1;
+      overflow-y: auto;
+      padding: 6px 8px;
+    }
+
     .tab-lista::-webkit-scrollbar { width: 4px; }
+    .tab-lista::-webkit-scrollbar-track { background: transparent; }
     .tab-lista::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
 
-    .lista-item { padding: 9px 10px; border-radius: 8px; cursor: pointer; transition: background .15s; margin-bottom: 2px; }
-    .lista-item:hover { background: var(--surface2); }
-    .lista-item-nome { font-size: 12px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-    .lista-item-sub { font-size: 11px; color: var(--muted); margin-top: 2px; display: flex; align-items: center; gap: 5px; }
-    .lista-item-rep { font-size: 11px; color: var(--muted); margin-top: 1px; }
-    .lista-vazia { text-align: center; padding: 24px; font-size: 12px; color: var(--muted); }
-    .badge-mini { display: inline-block; padding: 1px 5px; border-radius: 4px; font-size: 10px; font-weight: 600; }
-    .badge-mini.ativo { background: rgba(34,197,94,.15); color: var(--verde); }
-    .badge-mini.inativo { background: rgba(239,68,68,.15); color: var(--vermelho); }
+    .lista-item {
+      padding: 9px 10px;
+      border-radius: 8px;
+      cursor: pointer;
+      transition: background 0.15s;
+      margin-bottom: 2px;
+    }
 
-    /* ── Drawer representante ── */
+    .lista-item:hover {
+      background: var(--surface2);
+    }
+
+    .lista-item-nome {
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--text);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .lista-item-sub {
+      font-size: 11px;
+      color: var(--muted);
+      margin-top: 2px;
+      display: flex;
+      align-items: center;
+      gap: 5px;
+    }
+
+    .lista-item-rep {
+      font-size: 11px;
+      color: var(--muted);
+      margin-top: 1px;
+    }
+
+    .lista-vazia {
+      text-align: center;
+      padding: 24px;
+      font-size: 12px;
+      color: var(--muted);
+    }
+
+    /* Mini badges nas listas */
+    .badge-mini {
+      display: inline-block;
+      padding: 1px 5px;
+      border-radius: 4px;
+      font-size: 10px;
+      font-weight: 600;
+    }
+
+    .badge-mini.ativo { background: rgba(34,197,94,0.15); color: var(--verde); }
+    .badge-mini.inativo { background: rgba(239,68,68,0.15); color: var(--vermelho); }
+
+    /* ─── Drawer representante ──────────────────────────────── */
     #drawer {
-      position: fixed; bottom: -220px; left: var(--painel-w); right: 0; height: 220px;
-      z-index: 60; background: var(--surface); border-top: 1px solid var(--border);
-      border-left: 1px solid var(--border); display: flex; flex-direction: column;
-      transition: bottom .35s cubic-bezier(.4,0,.2,1); padding: 16px 20px;
+      position: fixed;
+      bottom: calc(-1 * var(--drawer-h));
+      left: var(--painel-w);
+      right: 0;
+      height: var(--drawer-h);
+      z-index: 60;
+      background: var(--surface);
+      border-top: 1px solid var(--border);
+      border-left: 1px solid var(--border);
+      display: flex;
+      flex-direction: column;
+      transition: bottom 0.35s cubic-bezier(0.4, 0, 0.2, 1);
+      padding: 16px 20px;
     }
-    #drawer.aberto { bottom: 0; }
 
-    .drawer-header { display: flex; align-items: center; gap: 12px; margin-bottom: 14px; }
+    #drawer.aberto {
+      bottom: 0;
+    }
+
+    .drawer-header {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin-bottom: 14px;
+    }
+
     #drawer-avatar {
-      width: 40px; height: 40px; border-radius: 50%; border: 2px solid var(--amarelo);
-      background: var(--surface2); display: flex; align-items: center; justify-content: center;
-      font-size: 18px; flex-shrink: 0;
+      width: 40px;
+      height: 40px;
+      border-radius: 50%;
+      border: 2px solid var(--amarelo);
+      background: var(--surface2);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 18px;
+      flex-shrink: 0;
     }
-    .drawer-info { flex: 1; min-width: 0; }
-    #drawer-nome { font-size: 15px; font-weight: 700; }
-    #drawer-divisao { font-size: 12px; color: var(--muted); }
-    #btn-fechar-drawer { background: none; border: none; color: var(--muted); font-size: 20px; cursor: pointer; padding: 4px; line-height: 1; }
 
-    .drawer-stats { display: flex; gap: 10px; margin-bottom: 14px; }
-    .drawer-stat { flex: 1; background: var(--surface2); border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px; text-align: center; }
-    .drawer-stat .ds-num { font-size: 18px; font-weight: 700; }
-    .drawer-stat .ds-label { font-size: 9px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); margin-top: 2px; }
+    .drawer-info {
+      flex: 1;
+      min-width: 0;
+    }
+
+    #drawer-nome {
+      font-size: 15px;
+      font-weight: 700;
+    }
+
+    #drawer-divisao {
+      font-size: 12px;
+      color: var(--muted);
+    }
+
+    #btn-fechar-drawer {
+      background: none;
+      border: none;
+      color: var(--muted);
+      font-size: 20px;
+      cursor: pointer;
+      padding: 4px;
+      line-height: 1;
+    }
+
+    .drawer-stats {
+      display: flex;
+      gap: 10px;
+      margin-bottom: 14px;
+    }
+
+    .drawer-stat {
+      flex: 1;
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 8px 10px;
+      text-align: center;
+    }
+
+    .drawer-stat .ds-num {
+      font-size: 18px;
+      font-weight: 700;
+    }
+
+    .drawer-stat .ds-label {
+      font-size: 9px;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: var(--muted);
+      margin-top: 2px;
+    }
+
     .ds-verde .ds-num { color: var(--verde); }
     .ds-vermelho .ds-num { color: var(--vermelho); }
     .ds-azul .ds-num { color: var(--azul); }
     .ds-amarelo .ds-num { color: var(--amarelo); }
 
     #btn-rota-csv {
-      background: var(--accent); color: #fff; border: none; border-radius: var(--radius);
-      padding: 10px 18px; font-size: 13px; font-weight: 600; font-family: inherit;
-      cursor: pointer; width: 100%; transition: opacity .2s;
-    }
-    #btn-rota-csv:hover { opacity: .85; }
-
-    /* ── Drawer município sem cobertura ── */
-    #drawer-municipio {
-      position: fixed; bottom: -260px; left: var(--painel-w); right: 0; height: 260px;
-      z-index: 60; background: var(--surface); border-top: 1px solid var(--border);
-      border-left: 1px solid var(--border); display: flex; flex-direction: column;
-      transition: bottom .35s cubic-bezier(.4,0,.2,1); padding: 16px 20px;
-    }
-    #drawer-municipio.aberto { bottom: 0; }
-
-    .drawer-mun-header { display: flex; align-items: center; gap: 12px; margin-bottom: 14px; }
-    .drawer-mun-avatar {
-      width: 40px; height: 40px; border-radius: 50%; border: 2px solid var(--azul);
-      background: var(--surface2); display: flex; align-items: center; justify-content: center;
-      font-size: 18px; flex-shrink: 0;
-    }
-    #drawer-mun-nome { font-size: 15px; font-weight: 700; }
-    .drawer-mun-sub { font-size: 12px; color: var(--muted); margin-top: 2px; }
-    #btn-fechar-drawer-mun { background: none; border: none; color: var(--muted); font-size: 20px; cursor: pointer; padding: 4px; line-height: 1; margin-left: auto; }
-
-    .drawer-mun-alerta {
-      background: rgba(59,130,246,.1); border: 1px solid rgba(59,130,246,.3);
-      border-radius: 8px; padding: 10px 14px; margin-bottom: 14px;
-      font-size: 12px; color: var(--azul); line-height: 1.5;
+      background: var(--accent);
+      color: #fff;
+      border: none;
+      border-radius: var(--radius);
+      padding: 10px 18px;
+      font-size: 13px;
+      font-weight: 600;
+      font-family: inherit;
+      cursor: pointer;
+      width: 100%;
+      transition: opacity 0.2s;
     }
 
-    /* ── Popups Leaflet ── */
+    #btn-rota-csv:hover { opacity: 0.85; }
+
+    /* ─── Popups Leaflet ────────────────────────────────────── */
     .leaflet-popup-content-wrapper {
-      background: var(--surface) !important; border: 1px solid var(--border) !important;
-      border-radius: var(--radius) !important; color: var(--text) !important;
-      box-shadow: 0 8px 32px rgba(0,0,0,.5) !important;
+      background: var(--surface) !important;
+      border: 1px solid var(--border) !important;
+      border-radius: var(--radius) !important;
+      color: var(--text) !important;
+      box-shadow: 0 8px 32px rgba(0,0,0,0.5) !important;
     }
-    .leaflet-popup-tip { background: var(--surface) !important; }
-    .leaflet-popup-content { margin: 0 !important; }
 
-    .popup-card { padding: 12px 14px; min-width: 200px; }
-    .popup-header { display: flex; align-items: center; gap: 6px; margin-bottom: 10px; font-size: 13px; }
-    .popup-badge { padding: 2px 7px; border-radius: 5px; font-size: 10px; font-weight: 700; flex-shrink: 0; }
-    .popup-badge.ativo { background: rgba(34,197,94,.15); color: var(--verde); }
-    .popup-badge.inativo { background: rgba(239,68,68,.15); color: var(--vermelho); }
-    .popup-badge.prospect { background: rgba(59,130,246,.15); color: var(--azul); }
-    .popup-badge.rep { background: rgba(245,158,11,.15); color: var(--amarelo); }
-    .popup-badge.sem-cob { background: rgba(59,130,246,.15); color: var(--azul); }
+    .leaflet-popup-tip {
+      background: var(--surface) !important;
+    }
+
+    .leaflet-popup-content {
+      margin: 0 !important;
+    }
+
+    .popup-card {
+      padding: 12px 14px;
+      min-width: 200px;
+    }
+
+    .popup-header {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      margin-bottom: 10px;
+      font-size: 13px;
+    }
+
+    .popup-badge {
+      padding: 2px 7px;
+      border-radius: 5px;
+      font-size: 10px;
+      font-weight: 700;
+      flex-shrink: 0;
+    }
+
+    .popup-badge.ativo { background: rgba(34,197,94,0.15); color: var(--verde); }
+    .popup-badge.inativo { background: rgba(239,68,68,0.15); color: var(--vermelho); }
+    .popup-badge.prospect { background: rgba(59,130,246,0.15); color: var(--azul); }
+    .popup-badge.rep { background: rgba(245,158,11,0.15); color: var(--amarelo); }
 
     .popup-row {
-      display: flex; justify-content: space-between; align-items: flex-start;
-      gap: 10px; font-size: 11px; padding: 3px 0; border-bottom: 1px solid var(--border);
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 10px;
+      font-size: 11px;
+      padding: 3px 0;
+      border-bottom: 1px solid var(--border);
+      color: var(--text);
     }
+
     .popup-row:last-child { border-bottom: none; }
-    .popup-row > span:first-child { color: var(--muted); flex-shrink: 0; }
-    .popup-row > span:last-child { text-align: right; word-break: break-word; }
 
-    /* ── Cluster ── */
-    .marker-cluster-small, .marker-cluster-medium, .marker-cluster-large {
-      background: rgba(59,130,246,.15) !important; border: 1px solid rgba(59,130,246,.4) !important;
-    }
-    .marker-cluster-small div, .marker-cluster-medium div, .marker-cluster-large div {
-      background: rgba(59,130,246,.4) !important; color: #fff !important;
-      font-family: 'Inter', sans-serif !important; font-weight: 700 !important;
+    .popup-row > span:first-child {
+      color: var(--muted);
+      flex-shrink: 0;
     }
 
-    /* ── Mobile ── */
+    .popup-row > span:last-child {
+      text-align: right;
+      word-break: break-word;
+    }
+
+    /* ─── Cluster customizado ───────────────────────────────── */
+    .marker-cluster-small,
+    .marker-cluster-medium,
+    .marker-cluster-large {
+      background: rgba(59, 130, 246, 0.15) !important;
+      border: 1px solid rgba(59, 130, 246, 0.4) !important;
+    }
+
+    .marker-cluster-small div,
+    .marker-cluster-medium div,
+    .marker-cluster-large div {
+      background: rgba(59, 130, 246, 0.4) !important;
+      color: #fff !important;
+      font-family: 'Inter', sans-serif !important;
+      font-weight: 700 !important;
+    }
+
+    /* ─── Mobile ────────────────────────────────────────────── */
     @media (max-width: 640px) {
-      :root { --painel-w: 100vw; }
-      #drawer, #drawer-municipio { left: 0; }
-      #painel { height: 60vh; top: auto; bottom: -60vh; left: 0; width: 100%; border-right: none; border-top: 1px solid var(--border); transition: bottom .35s cubic-bezier(.4,0,.2,1); }
-      #painel.aberto { bottom: 0; left: 0; }
+      :root {
+        --painel-w: 100vw;
+        --drawer-h: 240px;
+      }
+
+      #drawer {
+        left: 0;
+      }
+
+      #painel {
+        height: 60vh;
+        top: auto;
+        bottom: calc(-60vh);
+        left: 0;
+        width: 100%;
+        border-right: none;
+        border-top: 1px solid var(--border);
+        transition: bottom 0.35s cubic-bezier(0.4, 0, 0.2, 1);
+      }
+
+      #painel.aberto {
+        bottom: 0;
+        left: 0;
+      }
+
+      #drawer.aberto {
+        bottom: 60vh;
+      }
     }
   </style>
 </head>
+
 <body>
 
   <div id="map"></div>
 
-  <!-- Loading -->
   <div id="loading">
     <div class="spinner"></div>
     <p>Carregando dados da região…</p>
   </div>
 
-  <!-- Card de busca -->
   <div id="card-busca">
     <div class="busca-box">
       <div class="busca-logo">
         <div class="busca-logo-icon">🗺</div>
-        <div class="busca-logo-text">Gestão Comercial<small>Vendas Externas</small></div>
+        <div class="busca-logo-text">
+          Gestão Comercial
+          <small>Vendas Externas</small>
+        </div>
       </div>
       <h2>Qual região quer trabalhar hoje?</h2>
       <p>Digite uma cidade, estado, bairro ou região para começar.</p>
@@ -294,7 +741,6 @@
     </div>
   </div>
 
-  <!-- Painel lateral -->
   <div id="painel">
     <div class="painel-header">
       <div id="painel-titulo">—</div>
@@ -331,21 +777,28 @@
 
     <div class="tabs-body">
       <div class="tab-content active" id="tab-clientes">
-        <div class="tab-filtro"><input type="text" id="filtro-clientes" placeholder="Filtrar clientes…" /></div>
+        <div class="tab-filtro">
+          <input type="text" id="filtro-clientes" placeholder="Filtrar clientes…" />
+        </div>
         <div class="tab-lista" id="lista-clientes"></div>
       </div>
+
       <div class="tab-content" id="tab-prospects">
-        <div class="tab-filtro"><input type="text" id="filtro-prospects" placeholder="Filtrar prospects…" /></div>
+        <div class="tab-filtro">
+          <input type="text" id="filtro-prospects" placeholder="Filtrar prospects…" />
+        </div>
         <div class="tab-lista" id="lista-prospects"></div>
       </div>
+
       <div class="tab-content" id="tab-reps">
-        <div class="tab-filtro"><input type="text" id="filtro-representantes" placeholder="Filtrar representantes…" /></div>
+        <div class="tab-filtro">
+          <input type="text" id="filtro-representantes" placeholder="Filtrar representantes…" />
+        </div>
         <div class="tab-lista" id="lista-representantes"></div>
       </div>
     </div>
   </div>
 
-  <!-- Drawer representante -->
   <div id="drawer">
     <div class="drawer-header">
       <div id="drawer-avatar">👤</div>
@@ -356,39 +809,28 @@
       <button id="btn-fechar-drawer">✕</button>
     </div>
     <div class="drawer-stats">
-      <div class="drawer-stat ds-verde"><div class="ds-num" id="drawer-ativos">0</div><div class="ds-label">Ativos</div></div>
-      <div class="drawer-stat ds-vermelho"><div class="ds-num" id="drawer-inativos">0</div><div class="ds-label">Inativos</div></div>
-      <div class="drawer-stat ds-azul"><div class="ds-num" id="drawer-prosp-raio">0</div><div class="ds-label">Prospects</div></div>
-      <div class="drawer-stat ds-amarelo"><div class="ds-num">200</div><div class="ds-label">km raio</div></div>
-    </div>
-    <button id="btn-rota-csv">🗺 Ver rota + Exportar Excel (.xlsx)</button>
-  </div>
-
-  <!-- Drawer município sem cobertura -->
-  <div id="drawer-municipio">
-    <div class="drawer-mun-header">
-      <div class="drawer-mun-avatar">👤</div>
-      <div class="drawer-info">
-        <div id="drawer-mun-nome">—</div>
-        <div class="drawer-mun-sub">Município sem representante</div>
+      <div class="drawer-stat ds-verde">
+        <div class="ds-num" id="drawer-ativos">0</div>
+        <div class="ds-label">Ativos</div>
       </div>
-      <button id="btn-fechar-drawer-mun">✕</button>
+      <div class="drawer-stat ds-vermelho">
+        <div class="ds-num" id="drawer-inativos">0</div>
+        <div class="ds-label">Inativos</div>
+      </div>
+      <div class="drawer-stat ds-azul">
+        <div class="ds-num" id="drawer-prosp-raio">0</div>
+        <div class="ds-label">Prospects</div>
+      </div>
+      <div class="drawer-stat ds-amarelo">
+        <div class="ds-num">200</div>
+        <div class="ds-label">km raio</div>
+      </div>
     </div>
-    <div class="drawer-mun-alerta">
-      ⚠️ Este município não possui representante comercial num raio de <strong>200 km</strong>.
-      Os clientes inativos e prospects abaixo estão sem atendimento.
-    </div>
-    <div class="drawer-stats">
-      <div class="drawer-stat ds-vermelho"><div class="ds-num" id="drawer-mun-inativos">0</div><div class="ds-label">Inativos</div></div>
-      <div class="drawer-stat ds-azul"><div class="ds-num" id="drawer-mun-prospects">0</div><div class="ds-label">Prospects</div></div>
-      <div class="drawer-stat ds-amarelo"><div class="ds-num" id="drawer-mun-total">0</div><div class="ds-label">Total</div></div>
-    </div>
+    <button id="btn-rota-csv">🗺 Ver rota + Exportar Planilha (.xls)</button>
   </div>
 
-  <!-- Scripts -->
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
   <script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"></script>
-  <script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
   <script src="app.js"></script>
   <script>
     function sugerir(termo) {
@@ -396,5 +838,6 @@
       buscarRegiao();
     }
   </script>
+
 </body>
 </html>
