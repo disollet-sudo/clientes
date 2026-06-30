@@ -1,728 +1,662 @@
 // ============================================================
-// MAPA DE CLIENTES — app.js (Versão Representante em Foco)
+// GESTÃO COMERCIAL — app.js
+// Substitua a URL abaixo pela URL do seu Google Apps Script
 // ============================================================
 
-const API_URL = "https://script.google.com/macros/s/AKfycby0TkwRC-3wSixnXBBpEYnlCCpjcmwQW7cQdjOMZkF4vsYgn2HE7MQphVDem6HErImWLw/exec";
+const GAS_URL = 'https://script.google.com/macros/s/AKfycbw-uVG8ou7ClOx8q04Xx_GCihwPPRYbqSNx3aJh7QXPYcsW1OKRNBdaWHMgO89UTvmnQg/exec';
+const RAIO_PADRAO_KM = 200;
 
-let map, clusterClientes, clusterProspects;
-let cacheClientes = [], cacheProspects = [], cacheRepresentantes = [];
-let dadosCarregadosGlobais = false;
-let clientesFiltradosRegiao = [], prospectsFiltradosRegiao = [], repsFiltradosRegiao = [];
-let marcadoresRep = {}, circulosRep = {};
-let limitesRegiaoAtual = null;
+// ─── Estado global ───────────────────────────────────────────
+const state = {
+  map: null,
+  dados: null,           // { clientes, prospects, representantes }
+  regiaoNome: '',
+  bbox: null,
+  layers: {
+    clientes: null,
+    prospects: null,
+    representantes: null,
+    raioCircle: null,
+    rota: null,
+    highlight: []
+  },
+  repAtivo: null,        // representante selecionado
+};
 
-// Estado do modo "foco no representante"
-let modoFocoRep = null;
-let rotaLayer = null;
-let marcadoresClientesRep = [], marcadoresProspectsRep = [];
-
-document.addEventListener("DOMContentLoaded", () => {
-  inicializarMapa();
-  mostrarLoading(false);
+// ─── Init ────────────────────────────────────────────────────
+document.addEventListener('DOMContentLoaded', () => {
+  initMap();
+  bindUI();
 });
 
-function inicializarMapa() {
-  map = L.map("map", { center: [-29.68, -53.80], zoom: 6, zoomControl: true });
-  L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
-    attribution: '© <a href="https://openstreetmap.org">OpenStreetMap</a>', maxZoom: 19
-  }).addTo(map);
-  clusterClientes  = L.markerClusterGroup({ chunkedLoading: true, maxClusterRadius: 45, iconCreateFunction: criarIconeCluster });
-  clusterProspects = L.markerClusterGroup({ chunkedLoading: true, maxClusterRadius: 45, iconCreateFunction: criarIconeClusterProspect });
-  map.addLayer(clusterClientes);
-  map.addLayer(clusterProspects);
-  map.on("click", onMapClick);
+// ============================================================
+// MAPA
+// ============================================================
+function initMap() {
+  state.map = L.map('map', {
+    center: [-15.7801, -47.9292],
+    zoom: 5,
+    zoomControl: false
+  });
+
+  L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+    attribution: '© OpenStreetMap © CARTO',
+    subdomains: 'abcd',
+    maxZoom: 19
+  }).addTo(state.map);
+
+  L.control.zoom({ position: 'bottomright' }).addTo(state.map);
 }
 
-// ------------------------------------------------------------
-// EXTRATOR DE COORDENADAS
-// ------------------------------------------------------------
-function extrairCoordenadas(obj) {
-  let lat = obj.Lat || obj.lat || obj.latitude || obj.Latitude || obj.LAT;
-  let lng = obj.Lng || obj.lng || obj.longitude || obj.Longitude || obj.LNG;
-  let combo = obj.LatLng || obj.latlng || obj.latLng || obj.Coordenadas || "";
-  let strLat = String(lat || "").trim();
-  if (!combo && strLat.includes("-") && (strLat.match(/-/g) || []).length >= 2 && !lng) combo = strLat;
-  if (combo) {
-    let limpo = String(combo).replace(/,/g, '.').replace(/\s/g, '');
-    let matches = limpo.match(/-?\d+\.\d+|-?\d+/g);
-    if (matches && matches.length >= 2) return { lat: parseFloat(matches[0]), lng: parseFloat(matches[1]) };
-  }
-  function normalizar(val) {
-    if (val === undefined || val === null || val === "" || val === "—") return null;
-    let n = parseFloat(String(val).replace(',', '.').trim());
-    return isNaN(n) ? null : n;
-  }
-  return { lat: normalizar(lat), lng: normalizar(lng) };
+// ============================================================
+// BIND UI
+// ============================================================
+function bindUI() {
+  // Botão buscar região
+  document.getElementById('btn-buscar').addEventListener('click', buscarRegiao);
+  document.getElementById('input-regiao').addEventListener('keydown', e => {
+    if (e.key === 'Enter') buscarRegiao();
+  });
+
+  // Fechar drawer representante
+  document.getElementById('btn-fechar-drawer').addEventListener('click', fecharDrawer);
+
+  // Botão rota + CSV
+  document.getElementById('btn-rota-csv').addEventListener('click', rotaECsv);
+
+  // Nova busca
+  document.getElementById('btn-nova-busca').addEventListener('click', novaBusca);
+
+  // Abas do painel
+  document.querySelectorAll('.tab-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+      document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+      btn.classList.add('active');
+      document.getElementById('tab-' + btn.dataset.tab).classList.add('active');
+    });
+  });
+
+  // Filtros das abas
+  document.getElementById('filtro-clientes').addEventListener('input', renderListaClientes);
+  document.getElementById('filtro-prospects').addEventListener('input', renderListaProspects);
+  document.getElementById('filtro-representantes').addEventListener('input', renderListaRepresentantes);
 }
 
-// ------------------------------------------------------------
-// BUSCA PRINCIPAL
-// ------------------------------------------------------------
-async function iniciarBusca() {
-  const cidadeInput = document.getElementById('input-busca-welcome');
-  if (!cidadeInput) return;
-  const cidadeNome = cidadeInput.value.trim();
-  if (!cidadeNome) { toast("Por favor, digite uma cidade, bairro ou estado."); return; }
-  mostrarLoading(true, `Buscando limites de "${cidadeNome}"...`);
+// ============================================================
+// BUSCA DE REGIÃO (Nominatim)
+// ============================================================
+async function buscarRegiao() {
+  const termo = document.getElementById('input-regiao').value.trim();
+  if (!termo) return;
+
+  const btnBuscar = document.getElementById('btn-buscar');
+  btnBuscar.textContent = 'Buscando...';
+  btnBuscar.disabled = true;
+
   try {
-    const url = `https://nominatim.openstreetmap.org/search?format=json&countrycodes=br&limit=1&addressdetails=1&q=${encodeURIComponent(cidadeNome)}`;
-    const data = await (await fetch(url)).json();
-    if (data && data.length > 0) {
-      const lat = parseFloat(data[0].lat), lon = parseFloat(data[0].lon);
-      const bbox = data[0].boundingbox;
-      limitesRegiaoAtual = L.latLngBounds(
-        L.latLng(parseFloat(bbox[0]), parseFloat(bbox[2])),
-        L.latLng(parseFloat(bbox[1]), parseFloat(bbox[3]))
-      );
-      let zoomAlvo = 12;
-      const tipo = data[0].type || "", classe = data[0].class || "", nomeBaixo = data[0].display_name.toLowerCase();
-      if (tipo === "state" || nomeBaixo.includes("estado") || (classe === "boundary" && data[0].importance > 0.65)) zoomAlvo = 7;
-      else if (tipo === "suburb" || tipo === "neighborhood") zoomAlvo = 14;
-      map.flyTo([lat, lon], zoomAlvo, { animate: true, duration: 1.5 });
-      cidadeInput.blur();
-      const nomeExibicao = data[0].display_name.split(',')[0];
-      toast(`Focado em: ${nomeExibicao}`);
-      document.getElementById("welcome-overlay")?.classList.add("hidden");
-      document.getElementById("painel")?.classList.add("open");
-      document.getElementById("btn-toggle")?.classList.add("visible");
-      document.getElementById("btn-map-busca")?.classList.add("visible");
-      if (document.getElementById("painel-regiao-nome")) document.getElementById("painel-regiao-nome").textContent = nomeExibicao;
-      if (document.getElementById("regiao-label-top")) document.getElementById("regiao-label-top").textContent = nomeExibicao;
-      if (!dadosCarregadosGlobais) {
-        mostrarLoading(true, "Lendo base de dados...");
-        await carregarAPIGlobal();
-      }
-      sairModoFocoRep();
-      aplicarFiltroGeografico(limitesRegiaoAtual);
-      mostrarLoading(false);
-    } else {
-      mostrarLoading(false); toast("Região não encontrada. Tente detalhar melhor.");
-    }
-  } catch (error) {
-    console.error(error); mostrarLoading(false); toast("Falha na ligação com o servidor de mapas.");
-  }
-}
-window.iniciarBusca = iniciarBusca;
+    const url = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(termo)}&format=json&limit=1&accept-language=pt-BR`;
+    const resp = await fetch(url, { headers: { 'User-Agent': 'GestaoComercial/1.0' } });
+    const resultados = await resp.json();
 
-function novaBusca() {
-  document.getElementById("welcome-overlay")?.classList.remove("hidden");
-  document.getElementById("painel")?.classList.remove("open");
-  document.getElementById("btn-toggle")?.classList.remove("visible");
-  document.getElementById("btn-map-busca")?.classList.remove("visible");
-  fecharRepDetalhe();
-  sairModoFocoRep();
-  const inputWelcome = document.getElementById('input-busca-welcome');
-  if (inputWelcome) { inputWelcome.value = ""; inputWelcome.focus(); }
-}
-window.novaBusca = novaBusca;
-
-// ------------------------------------------------------------
-// CARREGAR API
-// ------------------------------------------------------------
-async function carregarAPIGlobal() {
-  try {
-    const [resClientes, resProspects, resReps] = await Promise.all([
-      chamarAPI({ action: "clientes" }),
-      chamarAPI({ action: "prospects" }),
-      chamarAPI({ action: "representantes" })
-    ]);
-    const arrClientes = Array.isArray(resClientes) ? resClientes : (resClientes.clientes || []);
-    const arrProspects = Array.isArray(resProspects) ? resProspects : (resProspects.prospects || []);
-    const arrReps = Array.isArray(resReps) ? resReps : (resReps.representantes || []);
-
-    cacheClientes = arrClientes.map(c => {
-      const coords = extrairCoordenadas(c);
-      return { ...c, lat: coords.lat, lng: coords.lng };
-    });
-    cacheProspects = arrProspects.map(p => {
-      const coords = extrairCoordenadas(p);
-      return {
-        ...p,
-        cnpj:      p.CNPJ      || p.cnpj      || "—",
-        nome:      p.Nome      || p["Razão Social"] || p.nome || p.Razao_Social || "Sem nome",
-        municipio: p.Município || p.Municipio  || p.cidade || p.Município_UF || "—",
-        endereco:  p.Endereço  || p.Endereco   || p.endereco || "—",
-        cnae:      p.CNAE_Desc || p.CNAE       || p.cnae || "—",
-        telefone1: p.telefone1 || p["Telefone 1"] || p.Telefone1 || p.Telefone || p.fone || "",
-        telefone2: p.telefone2 || p["Telefone 2"] || p.Telefone2 || "",
-        email:     p.email     || p["E-mail"]  || p.Email || "",
-        lat: coords.lat, lng: coords.lng
-      };
-    });
-    cacheRepresentantes = arrReps.map((r, idx) => {
-      const coords = extrairCoordenadas(r);
-      const CORES  = ["#f59e0b","#3b82f6","#ec4899","#10b981","#8b5cf6","#f97316","#06b6d4","#84cc16"];
-
-      // Valida bounds Brasil
-      const validarBR = (lat, lng) => {
-        const latOk = lat && lat >= -35 && lat <= 6;
-        const lngOk = lng && lng >= -75 && lng <= -28;
-        return latOk && lngOk ? { lat, lng } : { lat: 0, lng: 0 };
-      };
-
-      let { lat, lng } = validarBR(coords.lat || r.lat || 0, coords.lng || r.lng || 0);
-
-      // Se coordenadas inválidas, tenta buscar diretamente nos campos brutos
-      if (!lat || !lng) {
-        const possiveisLat = [r.Lat, r.lat, r.Latitude, r.latitude];
-        const possiveisLng = [r.Lng, r.lng, r.Longitude, r.longitude];
-        for (const v of possiveisLat) {
-          const n = parseFloat(String(v || "").replace(",", "."));
-          if (n >= -35 && n <= 6) { lat = n; break; }
-        }
-        for (const v of possiveisLng) {
-          const n = parseFloat(String(v || "").replace(",", "."));
-          if (n >= -75 && n <= -28) { lng = n; break; }
-        }
-      }
-
-      return {
-        ...r,
-        id:        r.id || r.Cd_empresa || r.cdRepresentante || String(idx),
-        nome:      r.nomeExibicao || r.fantasia || r.Nome_completo || r.nome || r.Nome || "Representante",
-        municipio: r.municipio || r.Municipio || r.Município || "—",
-        uf:        r.uf || r.Uf || "",
-        divisao:   r.divisao || r.Divisao || "",
-        cdRepresentante: r.cdRepresentante || r.Cd_represent || r.id || "",
-        cor:       r.cor || r.Cor || CORES[idx % CORES.length],
-        raioKm:    parseFloat(String(r.raioKm || r.RaioKm || 80).replace(",", ".")) || 80,
-        lat, lng
-      };
-    });
-
-    // Debug: mostra no console quantos reps têm coordenadas válidas
-    const comCoords = cacheRepresentantes.filter(r => r.lat && r.lng).length;
-    console.log(`Representantes carregados: ${cacheRepresentantes.length} total, ${comCoords} com coordenadas válidas`);
-    if (comCoords === 0 && cacheRepresentantes.length > 0) {
-      console.warn("Amostra de coords recebidas:", cacheRepresentantes.slice(0,3).map(r => ({ nome: r.nome, lat: r.lat, lng: r.lng })));
-    }
-    dadosCarregadosGlobais = true;
-  } catch (e) {
-    console.error(e); toast("Erro ao carregar dados."); throw e;
-  }
-}
-
-// ------------------------------------------------------------
-// FILTRO GEOGRÁFICO
-// ------------------------------------------------------------
-function aplicarFiltroGeografico(bounds) {
-  const boundsExpandido = bounds.pad(0.2);
-  clientesFiltradosRegiao  = cacheClientes.filter(c  => c.lat  && c.lng  && boundsExpandido.contains(L.latLng(c.lat,  c.lng)));
-  prospectsFiltradosRegiao = cacheProspects.filter(p => p.lat  && p.lng  && boundsExpandido.contains(L.latLng(p.lat,  p.lng)));
-  repsFiltradosRegiao = cacheRepresentantes.filter(r => {
-    if (!r.lat || !r.lng) return true;
-    const dist = distanciaKm(r.lat, r.lng, bounds.getCenter().lat, bounds.getCenter().lng);
-    return boundsExpandido.contains(L.latLng(r.lat, r.lng)) || (dist <= r.raioKm);
-  });
-  renderizarClientes(clientesFiltradosRegiao);
-  renderizarProspects(prospectsFiltradosRegiao);
-  renderizarRepresentantes();
-  atualizarPills();
-  renderizarOportunidades();
-}
-
-// ------------------------------------------------------------
-// MODO FOCO NO REPRESENTANTE
-// Ao clicar no boneco: zoom no raio, painel filtra só aquele rep
-// ------------------------------------------------------------
-function ativarModoFocoRep(rep) {
-  modoFocoRep = rep;
-
-  // Zoom para o raio do representante
-  const raioMetros = rep.raioKm * 1000;
-  const bounds = L.latLng(rep.lat, rep.lng).toBounds(raioMetros * 2);
-  map.flyToBounds(bounds, { padding: [40, 40], animate: true, duration: 1.2 });
-
-  // Filtra clientes e prospects dentro do raio
-  const clientesNoRaio   = cacheClientes.filter(c  => c.lat  && c.lng  && distanciaKm(rep.lat, rep.lng, c.lat,  c.lng) <= rep.raioKm);
-  const prospectsNoRaio  = cacheProspects.filter(p => p.lat  && p.lng  && distanciaKm(rep.lat, rep.lng, p.lat,  p.lng) <= rep.raioKm);
-
-  // Redesenha mapa só com os dados do raio
-  renderizarClientes(clientesNoRaio);
-  renderizarProspects(prospectsNoRaio);
-
-  // Atualiza painel lateral
-  clientesFiltradosRegiao  = clientesNoRaio;
-  prospectsFiltradosRegiao = prospectsNoRaio;
-  atualizarPills();
-
-  // Mostra rota de visita pelos prospects (linha conectando pontos mais próximos)
-  desenharRotaProspects(rep, prospectsNoRaio);
-
-  // Abre aba de reps e destaca
-  switchAba('reps', document.querySelector('[data-aba=reps]'));
-  abrirRepDetalhe(rep, calcularEstatisticasRep(rep));
-
-  // Banner de foco
-  mostrarBannerFoco(rep, prospectsNoRaio.length, clientesNoRaio.length);
-
-  toast(`📍 Foco: ${rep.nome} — ${prospectsNoRaio.length} prospects no raio`);
-}
-
-function sairModoFocoRep() {
-  modoFocoRep = null;
-  if (rotaLayer) { map.removeLayer(rotaLayer); rotaLayer = null; }
-  ocultarBannerFoco();
-}
-window.sairModoFocoRep = sairModoFocoRep;
-
-// ------------------------------------------------------------
-// ROTA DE VISITA PELOS PROSPECTS (linha + numeração)
-// Algoritmo guloso do vizinho mais próximo a partir do rep
-// ------------------------------------------------------------
-function desenharRotaProspects(rep, prospects) {
-  if (rotaLayer) { map.removeLayer(rotaLayer); rotaLayer = null; }
-  const comCoords = prospects.filter(p => p.lat && p.lng);
-  if (comCoords.length === 0) return;
-
-  // Algoritmo do vizinho mais próximo
-  let restantes = [...comCoords];
-  let rota = [];
-  let atualLat = rep.lat, atualLng = rep.lng;
-  while (restantes.length > 0) {
-    let melhorIdx = 0, melhorDist = Infinity;
-    restantes.forEach((p, i) => {
-      const d = distanciaKm(atualLat, atualLng, p.lat, p.lng);
-      if (d < melhorDist) { melhorDist = d; melhorIdx = i; }
-    });
-    const proximo = restantes.splice(melhorIdx, 1)[0];
-    rota.push(proximo);
-    atualLat = proximo.lat; atualLng = proximo.lng;
-  }
-
-  // Desenha a rota como polyline pontilhada
-  const pontos = [[rep.lat, rep.lng], ...rota.map(p => [p.lat, p.lng]), [rep.lat, rep.lng]];
-  rotaLayer = L.layerGroup();
-
-  L.polyline(pontos, {
-    color: "#f59e0b", weight: 2.5, opacity: 0.75, dashArray: "6 5"
-  }).addTo(rotaLayer);
-
-  // Numera os prospects na ordem de visita
-  rota.forEach((p, i) => {
-    const numIcon = L.divIcon({
-      className: "",
-      iconSize: [22, 22],
-      iconAnchor: [11, 11],
-      html: `<div style="background:#f59e0b;color:#000;width:22px;height:22px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;border:2px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,0.4);">${i+1}</div>`
-    });
-    L.marker([p.lat, p.lng], { icon: numIcon })
-      .bindPopup(`<div class="popup-nome">#${i+1} ${p.nome}</div>
-        <div class="popup-info">
-          <b>CNPJ:</b> ${p.cnpj}<br>
-          <b>CNAE:</b> ${p.cnae}<br>
-          <b>Município:</b> ${p.municipio}
-          ${p.telefone1 ? `<br><b>📞</b> <a href="tel:${p.telefone1}" style="color:#f59e0b">${p.telefone1}</a>` : ""}
-          ${p.telefone2 ? ` / <a href="tel:${p.telefone2}" style="color:#f59e0b">${p.telefone2}</a>` : ""}
-          ${p.email     ? `<br><b>✉️</b> ${p.email}` : ""}
-        </div>`)
-      .addTo(rotaLayer);
-  });
-
-  rotaLayer.addTo(map);
-
-  // Guarda rota para exportação
-  window._rotaAtual = { rep: window._atualRepParaRota, pontos: rota };
-}
-
-// ------------------------------------------------------------
-// BANNER DE FOCO
-// ------------------------------------------------------------
-function mostrarBannerFoco(rep, numProspects, numClientes) {
-  let banner = document.getElementById("banner-foco");
-  if (!banner) {
-    banner = document.createElement("div");
-    banner.id = "banner-foco";
-    banner.style.cssText = `position:fixed;top:12px;left:50%;transform:translateX(-50%);z-index:9999;background:#1a1a18;color:#fff;padding:10px 18px;border-radius:12px;font-size:13px;display:flex;align-items:center;gap:12px;box-shadow:0 4px 20px rgba(0,0,0,0.5);border:1px solid #f59e0b;`;
-    document.body.appendChild(banner);
-  }
-  banner.innerHTML = `
-    <span style="font-size:16px;">🧍</span>
-    <div>
-      <div style="font-weight:700;color:#fbbf24;">${rep.nome}</div>
-      <div style="font-size:11px;color:#aaa;">Raio ${rep.raioKm}km · <span style="color:#2563eb">●</span> ${numProspects} prospects · <span style="color:#22c55e">●</span> ${numClientes} clientes</div>
-    </div>
-    <button onclick="sairModoFocoRep(); if(limitesRegiaoAtual){aplicarFiltroGeografico(limitesRegiaoAtual);}" style="background:#374151;border:none;color:#fff;border-radius:8px;padding:4px 10px;cursor:pointer;font-size:12px;">✕ Sair</button>`;
-  banner.style.display = "flex";
-}
-
-function ocultarBannerFoco() {
-  const banner = document.getElementById("banner-foco");
-  if (banner) banner.style.display = "none";
-}
-
-// ------------------------------------------------------------
-// RENDERIZAÇÃO
-// ------------------------------------------------------------
-function renderizarClientes(lista) {
-  clusterClientes.clearLayers();
-  const listEl = document.getElementById("lista-clientes");
-  if (!listEl) return;
-  listEl.innerHTML = "";
-  lista.forEach(c => {
-    if (c.lat && c.lng) {
-      const isAtivo = c.status === "ativo";
-      const marker = L.circleMarker([c.lat, c.lng], {
-        radius: 8, fillColor: isAtivo ? "#22c55e" : "#ef4444",
-        color: isAtivo ? "#15803d" : "#b91c1c", weight: 2, fillOpacity: 0.9
-      });
-      marker.bindPopup(popupCliente(c));
-      clusterClientes.addLayer(marker);
-    }
-    const div = document.createElement("div"); div.className = "item-lista";
-    div.innerHTML = `<div class="item-icon" style="background:${c.status==='ativo'?'rgba(34,197,94,0.15)':'rgba(239,68,68,0.15)'}">🏢</div>
-      <div class="item-dados"><div class="item-nome">${c.nome||c.cnpj}</div>
-      <div class="item-info"><span class="badge ${c.status}">${c.status||"—"}</span>
-      ${c.municipio?" · "+c.municipio:""} ${c.representante?" · 💼 "+c.representante:""}</div></div>`;
-    div.onclick = () => { if (c.lat && c.lng) map.flyTo([c.lat, c.lng], 15); };
-    listEl.appendChild(div);
-  });
-  if (lista.length === 0) listEl.innerHTML = `<div class="empty-msg">Nenhum cliente mapeado nesta área.</div>`;
-}
-
-function renderizarProspects(lista) {
-  clusterProspects.clearLayers();
-  const listEl = document.getElementById("lista-prospects");
-  if (!listEl) return;
-  listEl.innerHTML = "";
-  lista.forEach(p => {
-    if (p.lat && p.lng) {
-      const marker = L.circleMarker([p.lat, p.lng], {
-        radius: 8, fillColor: "#2563eb", color: "#1d4ed8", weight: 2, fillOpacity: 0.85
-      });
-      marker.bindPopup(`<div class="popup-nome">${p.nome}</div>
-        <div class="popup-info">
-          <b>CNPJ:</b> ${p.cnpj}<br>
-          <b>Atividade:</b> ${p.cnae}<br>
-          <b>Município:</b> ${p.municipio}<br>
-          <b>Endereço:</b> ${p.endereco}
-          ${p.telefone1 ? `<br><b>📞 Telefone:</b> <a href="tel:${p.telefone1}" style="color:#2563eb">${p.telefone1}</a>` : ""}
-          ${p.telefone2 ? ` / <a href="tel:${p.telefone2}" style="color:#2563eb">${p.telefone2}</a>` : ""}
-          ${p.email     ? `<br><b>✉️ E-mail:</b> <a href="mailto:${p.email}" style="color:#2563eb">${p.email}</a>` : ""}
-        </div>`);
-      clusterProspects.addLayer(marker);
-    }
-    const div = document.createElement("div"); div.className = "item-lista";
-    div.innerHTML = `<div class="item-icon" style="background:rgba(37,99,235,0.15)">🎯</div>
-      <div class="item-dados"><div class="item-nome">${p.nome}</div><div class="item-info">
-      <span class="badge prospect">Prospect</span> ${p.municipio?" · "+p.municipio:""}
-      ${p.telefone1 ? ` · 📞 ${p.telefone1}` : ""}
-      · 🏷️ ${p.cnpj}</div></div>`;
-    div.onclick = () => { if (p.lat && p.lng) map.flyTo([p.lat, p.lng], 15); };
-    listEl.appendChild(div);
-  });
-  if (lista.length === 0) listEl.innerHTML = `<div class="empty-msg">Nenhum prospect mapeado nesta área.</div>`;
-}
-
-function renderizarRepresentantes() {
-  const listEl = document.getElementById("lista-reps");
-  if (!listEl) return;
-  listEl.innerHTML = "";
-  Object.values(marcadoresRep).forEach(m => map.removeLayer(m));
-  Object.values(circulosRep).forEach(c => map.removeLayer(c));
-  marcadoresRep = {}; circulosRep = {};
-
-  repsFiltradosRegiao.forEach(rep => {
-    if (rep.lat && rep.lng) {
-      // Boneco AMARELO bem visível
-      const repIcon = L.divIcon({
-        className: "",
-        iconSize: [40, 50],
-        iconAnchor: [20, 50],
-        popupAnchor: [0, -50],
-        html: `<div style="position:relative;width:40px;height:50px;filter:drop-shadow(0 3px 6px rgba(0,0,0,0.6));">
-          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 50" width="40" height="50">
-            <path d="M20 0C9 0 0 9 0 20c0 15 20 30 20 30S40 35 40 20C40 9 31 0 20 0z" fill="#f59e0b" stroke="#fff" stroke-width="2.5"/>
-            <circle cx="20" cy="15" r="6" fill="#1a1a18"/>
-            <path d="M8 33c0-6.6 5.4-12 12-12s12 5.4 12 12" fill="#1a1a18"/>
-          </svg>
-        </div>`
-      });
-      const marker = L.marker([rep.lat, rep.lng], { icon: repIcon, zIndexOffset: 1000 });
-
-      // Clique no boneco = modo foco
-      marker.on("click", () => ativarModoFocoRep(rep));
-
-      marker.addTo(map);
-      marcadoresRep[rep.id] = marker;
-
-      const circulo = L.circle([rep.lat, rep.lng], {
-        radius: rep.raioKm * 1000,
-        fillColor: "#f59e0b", fillOpacity: 0.04,
-        color: "#f59e0b", weight: 1.5, dashArray: "6 5"
-      });
-      circulo.addTo(map);
-      circulosRep[rep.id] = circulo;
+    if (!resultados.length) {
+      alert('Região não encontrada. Tente outro nome.');
+      return;
     }
 
-    const stats = calcularEstatisticasRep(rep);
-    const temCoords = rep.lat && rep.lng;
-    const avisoGeo = !temCoords
-      ? `<span style="color:#ef4444;font-size:11px;">⚠️ Sem coordenadas na planilha</span>`
-      : `<span style="color:#f59e0b;font-size:11px;">⭕ Raio: ${rep.raioKm} km</span>`;
-
-    const div = document.createElement("div"); div.className = "rep-item";
-    div.innerHTML = `
-      <div class="rep-item-header">
-        <div class="rep-mini-dot" style="background:#f59e0b"></div>
-        <span class="rep-item-nome">${rep.nome}</span>
-      </div>
-      <div class="rep-item-info">${rep.municipio?"📍 "+rep.municipio+" · ":""}${avisoGeo}</div>
-      <div class="rep-item-stats">
-        <div class="rep-mini-stat" style="color:#22c55e"><strong>${stats.clientesAtivos}</strong> Ativos</div>
-        <div class="rep-mini-stat" style="color:#ef4444"><strong>${stats.clientesInativos}</strong> Inat.</div>
-        <div class="rep-mini-stat" style="color:#2563eb"><strong>${stats.prospectsNoRaio}</strong> Prospects</div>
-      </div>
-      ${temCoords ? `<div style="margin-top:6px;"><button class="btn-foco-rep" onclick="ativarModoFocoRep(window._reps['${rep.id}'])">🔍 Ver raio de atuação</button></div>` : ""}`;
-    div.onclick = (e) => {
-      if (e.target.classList.contains("btn-foco-rep")) return;
-      if (temCoords) { map.flyTo([rep.lat, rep.lng], 11); abrirRepDetalhe(rep, stats); }
-      else toast(`${rep.nome} não possui coordenadas.`);
+    const r = resultados[0];
+    const bb = r.boundingbox; // [latMin, latMax, lngMin, lngMax]
+    state.bbox = {
+      latMin: parseFloat(bb[0]),
+      latMax: parseFloat(bb[1]),
+      lngMin: parseFloat(bb[2]),
+      lngMax: parseFloat(bb[3])
     };
-    listEl.appendChild(div);
-  });
+    state.regiaoNome = r.display_name.split(',')[0];
 
-  // Guarda reps acessíveis globalmente para os botões inline
-  window._reps = {};
-  repsFiltradosRegiao.forEach(r => { window._reps[r.id] = r; });
+    // Centraliza mapa
+    state.map.fitBounds([
+      [state.bbox.latMin, state.bbox.lngMin],
+      [state.bbox.latMax, state.bbox.lngMax]
+    ], { padding: [30, 30] });
 
-  if (repsFiltradosRegiao.length === 0) listEl.innerHTML = `<div class="empty-msg">Nenhum representante na área.</div>`;
-}
-window.ativarModoFocoRep = ativarModoFocoRep;
+    // Fecha card de busca
+    document.getElementById('card-busca').style.display = 'none';
 
-// ------------------------------------------------------------
-// CÁLCULOS E PAINÉIS
-// ------------------------------------------------------------
-function abrirRepDetalhe(rep, stats) {
-  const el = document.getElementById("rep-detalhe");
-  if (!el) return;
-  el.classList.add("open");
-  document.getElementById("rep-det-nome").textContent = rep.nome;
-  document.getElementById("rd-ativos").textContent = stats.clientesAtivos;
-  document.getElementById("rd-inativos").textContent = stats.clientesInativos;
-  document.getElementById("rd-prospects").textContent = stats.prospectsNoRaio;
-  document.getElementById("rd-raio").textContent = `${rep.raioKm}km`;
-  window._atualRepParaRota = rep;
+    // Carrega dados do backend
+    await carregarDados();
 
-  // Calcula potencial de vendas (prospects / clientes ativos)
-  const potencial = stats.clientesAtivos > 0 ? ((stats.prospectsNoRaio / stats.clientesAtivos) * 100).toFixed(0) : "∞";
-  const elPot = document.getElementById("rd-potencial");
-  if (elPot) elPot.textContent = `${potencial}%`;
-}
-
-function fecharRepDetalhe() { document.getElementById("rep-detalhe")?.classList.remove("open"); }
-window.fecharRepDetalhe = fecharRepDetalhe;
-
-function verRotaRep() {
-  if (!window._atualRepParaRota) return;
-  const rep = window._atualRepParaRota;
-  if (rep.lat && rep.lng) ativarModoFocoRep(rep);
-  else toast(`O representante ${rep.nome} não possui coordenadas.`);
-}
-window.verRotaRep = verRotaRep;
-
-function exportarRotaCSV() {
-  const dados = window._rotaAtual;
-  if (!dados || !dados.pontos || dados.pontos.length === 0) {
-    toast("Primeiro ative o modo foco de um representante para gerar a rota.");
-    return;
+  } catch (err) {
+    alert('Erro ao buscar região: ' + err.message);
+  } finally {
+    btnBuscar.textContent = 'Buscar';
+    btnBuscar.disabled = false;
   }
-  const rep    = dados.rep;
-  const pontos = dados.pontos;
+}
 
-  // Cabeçalho
-  const linhas = [
-    `Rota de Prospecção — ${rep ? rep.nome : "Representante"}`,
-    `Gerado em: ${new Date().toLocaleDateString("pt-BR")} ${new Date().toLocaleTimeString("pt-BR")}`,
-    `Total de prospects na rota: ${pontos.length}`,
-    "",
-    "Ordem;Nome;CNPJ;Telefone 1;Telefone 2;E-mail;Município;Endereço;CNAE;Latitude;Longitude"
-  ];
+// ============================================================
+// CARREGAR DADOS DO GAS
+// ============================================================
+async function carregarDados() {
+  mostrarLoading(true);
 
-  pontos.forEach((p, i) => {
-    const linha = [
-      i + 1,
-      `"${(p.nome      || "").replace(/"/g, '""')}"`,
-      `"${(p.cnpj      || "").replace(/"/g, '""')}"`,
-      `"${(p.telefone1 || "").replace(/"/g, '""')}"`,
-      `"${(p.telefone2 || "").replace(/"/g, '""')}"`,
-      `"${(p.email     || "").replace(/"/g, '""')}"`,
-      `"${(p.municipio || "").replace(/"/g, '""')}"`,
-      `"${(p.endereco  || "").replace(/"/g, '""')}"`,
-      `"${(p.cnae      || "").replace(/"/g, '""')}"`,
-      p.lat || "",
-      p.lng || ""
-    ].join(";");
-    linhas.push(linha);
-  });
+  try {
+    const { latMin, latMax, lngMin, lngMax } = state.bbox;
+    const url = `${GAS_URL}?acao=getRegiao&latMin=${latMin}&latMax=${latMax}&lngMin=${lngMin}&lngMax=${lngMax}`;
+    const resp = await fetch(url);
+    const dados = await resp.json();
 
-  // Adiciona clientes ativos no raio (referência)
-  if (rep && rep.lat && rep.lng) {
-    const clientesNoRaio = cacheClientes.filter(c =>
-      c.lat && c.lng && c.status === "ativo" &&
-      distanciaKm(rep.lat, rep.lng, c.lat, c.lng) <= rep.raioKm
-    );
-    if (clientesNoRaio.length > 0) {
-      linhas.push("");
-      linhas.push("--- CLIENTES ATIVOS NO RAIO (para referência) ---");
-      linhas.push("Nome;CNPJ;Telefone;Município;Endereço;Representante");
-      clientesNoRaio.forEach(c => {
-        linhas.push([
-          `"${(c.nome      || "").replace(/"/g, '""')}"`,
-          `"${(c.cnpj      || "").replace(/"/g, '""')}"`,
-          `"${(c.fone      || "").replace(/"/g, '""')}"`,
-          `"${(c.municipio || "").replace(/"/g, '""')}"`,
-          `"${(c.endereco  || "").replace(/"/g, '""')}"`,
-          `"${(c.representante || "").replace(/"/g, '""')}"`
-        ].join(";"));
-      });
-    }
+    if (dados.erro) throw new Error(dados.erro);
+
+    state.dados = dados;
+
+    limparLayersAnteriores();
+    plotarMarcadores();
+    abrirPainel();
+    renderStats();
+    renderOportunidades();
+    renderListaClientes();
+    renderListaProspects();
+    renderListaRepresentantes();
+
+  } catch (err) {
+    alert('Erro ao carregar dados: ' + err.message);
+  } finally {
+    mostrarLoading(false);
   }
-
-  // Download
-  const bom     = "\uFEFF"; // BOM para Excel abrir com acentos corretos
-  const blob    = new Blob([bom + linhas.join("\n")], { type: "text/csv;charset=utf-8;" });
-  const url     = URL.createObjectURL(blob);
-  const a       = document.createElement("a");
-  const repNome = rep ? rep.nome.replace(/[^a-zA-Z0-9]/g, "_") : "rota";
-  a.href        = url;
-  a.download    = `rota_${repNome}_${new Date().toISOString().slice(0,10)}.csv`;
-  document.body.appendChild(a);
-  a.click();
-  document.body.removeChild(a);
-  URL.revokeObjectURL(url);
-  toast(`✅ CSV exportado com ${pontos.length} prospects!`);
-}
-window.exportarRotaCSV = exportarRotaCSV;
-
-function filtrarClientes() {
-  const termo = document.getElementById("filtro-cliente").value.toLowerCase();
-  renderizarClientes(clientesFiltradosRegiao.filter(c => (c.nome||"").toLowerCase().includes(termo)||(c.cnpj||"").includes(termo)||(c.municipio||"").toLowerCase().includes(termo)));
-}
-window.filtrarClientes = filtrarClientes;
-
-function filtrarProspects() {
-  const termo = document.getElementById("filtro-prospect").value.toLowerCase();
-  renderizarProspects(prospectsFiltradosRegiao.filter(p => (p.nome||"").toLowerCase().includes(termo)||(p.cnpj||"").includes(termo)||(p.cnae||"").toLowerCase().includes(termo)));
-}
-window.filtrarProspects = filtrarProspects;
-
-function filtrarPorStatus(status) {
-  renderizarClientes(clientesFiltradosRegiao.filter(c => c.status === status));
-  switchAba('clientes', document.querySelector('[data-aba=clientes]'));
-  document.querySelectorAll('.stat-card').forEach(c => c.classList.remove('active-filter'));
-  if(status==='ativo')   document.querySelectorAll('.stat-card')[0].classList.add('active-filter');
-  if(status==='inativo') document.querySelectorAll('.stat-card')[1].classList.add('active-filter');
-}
-window.filtrarPorStatus = filtrarPorStatus;
-
-function atualizarPills() {
-  const total = clientesFiltradosRegiao.length;
-  const ativos = clientesFiltradosRegiao.filter(c => c.status === "ativo").length;
-  const inativos = total - ativos;
-  if (document.getElementById("stat-ativos"))      document.getElementById("stat-ativos").textContent = ativos;
-  if (document.getElementById("stat-inativos"))    document.getElementById("stat-inativos").textContent = inativos;
-  if (document.getElementById("stat-prospects"))   document.getElementById("stat-prospects").textContent = prospectsFiltradosRegiao.length;
-  if (document.getElementById("stat-reps"))        document.getElementById("stat-reps").textContent = repsFiltradosRegiao.length;
-  if (document.getElementById("stat-ativos-pct"))  document.getElementById("stat-ativos-pct").textContent = `${total>0?Math.round((ativos/total)*100):0}% do total`;
-  if (document.getElementById("stat-inativos-pct"))document.getElementById("stat-inativos-pct").textContent = `${total>0?Math.round((inativos/total)*100):0}% do total`;
 }
 
-function renderizarOportunidades() {
-  const box = document.getElementById("oport-itens"); if (!box) return;
-  box.innerHTML = prospectsFiltradosRegiao.length > 0
-    ? `<div class="oport-item"><span class="oport-emoji">🎯</span><div>Existem <b>${prospectsFiltradosRegiao.length} prospects</b> na área filtrada.</div></div>`
-    : `<div class="oport-item">Nenhum prospect mapeado.</div>`;
+function mostrarLoading(show) {
+  document.getElementById('loading').style.display = show ? 'flex' : 'none';
 }
 
-function switchAba(abaNome, btn) {
-  document.querySelectorAll(".aba-conteudo").forEach(p => p.classList.remove("active"));
-  document.querySelectorAll(".aba-btn").forEach(b => b.classList.remove("active"));
-  const painelAlvo = document.getElementById("aba-" + abaNome);
-  if (painelAlvo) painelAlvo.classList.add("active");
-  if (btn) btn.classList.add("active");
-}
-window.switchAba = switchAba;
+// ============================================================
+// PLOTAR MARCADORES
+// ============================================================
+function plotarMarcadores() {
+  const { clientes, prospects, representantes } = state.dados;
 
-function togglePainel() {
-  const painel = document.getElementById("painel");
-  if (painel) { painel.classList.toggle("open"); document.getElementById("toggle-icon").textContent = painel.classList.contains("open") ? "◀" : "☰"; }
-}
-window.togglePainel = togglePainel;
+  // Cluster geral para clientes e prospects
+  const clusterClientes = L.markerClusterGroup({ disableClusteringAtZoom: 12 });
+  const clusterProspects = L.markerClusterGroup({ disableClusteringAtZoom: 12 });
 
-function calcularEstatisticasRep(rep) {
-  const raioKm = rep.raioKm || 80;
-  let ativos = 0, inativos = 0, prospects = 0;
-  const cdRep = String(rep.cdRepresentante || rep.id || "").trim();
-
-  cacheClientes.forEach(c => {
-    const noRaio = rep.lat && rep.lng && c.lat && c.lng && distanciaKm(rep.lat, rep.lng, c.lat, c.lng) <= raioKm;
-    const doRep  = cdRep && (String(c.representante || "").trim() === cdRep || String(c.cd || "").trim() === cdRep);
-    if (noRaio || doRep) {
-      c.status === "ativo" ? ativos++ : inativos++;
-    }
-  });
-
-  if (rep.lat && rep.lng) {
-    cacheProspects.forEach(p => {
-      if (p.lat && p.lng && distanciaKm(rep.lat, rep.lng, p.lat, p.lng) <= raioKm) prospects++;
+  // ── Clientes ──
+  clientes.forEach(c => {
+    const ativo = c.ativo == 1;
+    const color = ativo ? '#22c55e' : '#ef4444';
+    const marker = L.circleMarker([c.lat, c.lng], {
+      radius: 7,
+      fillColor: color,
+      color: color,
+      weight: 1.5,
+      fillOpacity: 0.85,
+      className: 'marker-cliente'
     });
-  }
-  return { clientesAtivos: ativos, clientesInativos: inativos, prospectsNoRaio: prospects };
+    marker.bindPopup(popupCliente(c));
+    marker._dadosCliente = c;
+    clusterClientes.addLayer(marker);
+  });
+
+  // ── Prospects ──
+  prospects.forEach(p => {
+    const icon = L.divIcon({
+      html: svgEstrela('#3b82f6'),
+      className: '',
+      iconSize: [20, 20],
+      iconAnchor: [10, 10]
+    });
+    const marker = L.marker([p.lat, p.lng], { icon });
+    marker.bindPopup(popupProspect(p));
+    marker._dadosProspect = p;
+    clusterProspects.addLayer(marker);
+  });
+
+  // ── Representantes ──
+  const layerReps = L.layerGroup();
+  representantes.forEach(rep => {
+    const cor = rep.cor || '#F59E0B';
+    const icon = L.divIcon({
+      html: svgBoneco(cor),
+      className: '',
+      iconSize: [32, 32],
+      iconAnchor: [16, 32]
+    });
+    const marker = L.marker([rep.lat, rep.lng], { icon, zIndexOffset: 1000 });
+    marker.bindPopup(popupRepresentante(rep));
+    marker._dadosRep = rep;
+    marker.on('click', () => ativarModoRep(rep, marker));
+    layerReps.addLayer(marker);
+  });
+
+  clusterClientes.addTo(state.map);
+  clusterProspects.addTo(state.map);
+  layerReps.addTo(state.map);
+
+  state.layers.clientes = clusterClientes;
+  state.layers.prospects = clusterProspects;
+  state.layers.representantes = layerReps;
 }
 
+function limparLayersAnteriores() {
+  ['clientes', 'prospects', 'representantes', 'raioCircle', 'rota'].forEach(key => {
+    if (state.layers[key]) {
+      state.map.removeLayer(state.layers[key]);
+      state.layers[key] = null;
+    }
+  });
+  state.layers.highlight.forEach(l => state.map.removeLayer(l));
+  state.layers.highlight = [];
+  state.repAtivo = null;
+}
+
+// ============================================================
+// POPUPS
+// ============================================================
 function popupCliente(c) {
-  return `<div class="popup-nome">${c.nome||"Sem nome"}</div><div class="popup-info"><b>CNPJ:</b> ${c.cnpj||"—"}<br><b>Status:</b> <span class="badge ${c.status}">${c.status}</span><br><b>Endereço:</b> ${c.endereco||"—"} (${c.municipio||"—"})<br><b>Representante:</b> ${c.representante||"Sem atribuição"}</div>`;
+  const badge = c.ativo == 1
+    ? '<span class="popup-badge ativo">Ativo</span>'
+    : '<span class="popup-badge inativo">Inativo</span>';
+  return `
+    <div class="popup-card">
+      <div class="popup-header">${badge}<strong>${c.fantasia || c.nome_completo}</strong></div>
+      <div class="popup-row"><span>Cód.</span><span>${c.cd_empresa}</span></div>
+      <div class="popup-row"><span>CNPJ/CPF</span><span>${c.cnpj_cpf}</span></div>
+      <div class="popup-row"><span>Fone</span><span>${c.fone}</span></div>
+      <div class="popup-row"><span>Contato</span><span>${c.contato}</span></div>
+      <div class="popup-row"><span>Município</span><span>${c.municipio}/${c.uf}</span></div>
+      <div class="popup-row"><span>Representante</span><span>${nomeRep(c.cd_representant)}</span></div>
+    </div>`;
+}
+
+function popupProspect(p) {
+  return `
+    <div class="popup-card">
+      <div class="popup-header"><span class="popup-badge prospect">Prospect</span><strong>${p.nome}</strong></div>
+      <div class="popup-row"><span>CNPJ</span><span>${p.cnpj}</span></div>
+      <div class="popup-row"><span>Telefone 1</span><span>${p.telefone1}</span></div>
+      <div class="popup-row"><span>Telefone 2</span><span>${p.telefone2}</span></div>
+      <div class="popup-row"><span>Município</span><span>${p.municipio_uf || p.municipio + '/' + p.uf}</span></div>
+      <div class="popup-row"><span>CNAE</span><span>${p.cnae_desc}</span></div>
+    </div>`;
 }
 
 function popupRepresentante(rep) {
-  const stats = calcularEstatisticasRep(rep);
-  return `<div class="popup-nome">${rep.nome}</div><div class="popup-info"><b>Base:</b> ${rep.municipio||"—"}<br><b>Raio:</b> ${rep.raioKm}km<hr style="margin:6px 0;border:none;border-top:1px solid #ddd;"><b>No raio:</b><br>✅ ${stats.clientesAtivos} ativos · ❌ ${stats.clientesInativos} inativos<br>🎯 ${stats.prospectsNoRaio} prospects</div>`;
+  return `
+    <div class="popup-card">
+      <div class="popup-header"><span class="popup-badge rep">Representante</span><strong>${rep.fantasia}</strong></div>
+      <div class="popup-row"><span>Nome</span><span>${rep.nome_completo}</span></div>
+      <div class="popup-row"><span>Município</span><span>${rep.municipio}/${rep.uf}</span></div>
+      <div class="popup-row"><span>Divisão</span><span>${rep.divisao}</span></div>
+      <div class="popup-row" style="margin-top:8px"><span colspan="2" style="color:#94a3b8;font-size:11px">Clique no ícone para ver raio de atuação</span></div>
+    </div>`;
 }
 
-function onMapClick(e) { window._pendingLat = e.latlng.lat; window._pendingLng = e.latlng.lng; }
-
-function mostrarLoading(s, m) {
-  const el = document.getElementById("loading");
-  if (!el) return;
-  el.classList.toggle("hidden", !s);
-  if (m) el.querySelector("p").textContent = m;
+function nomeRep(cdRep) {
+  if (!state.dados || !state.dados.representantes) return cdRep || '—';
+  const rep = state.dados.representantes.find(r => r.cd_representant == cdRep);
+  return rep ? rep.fantasia : (cdRep || '—');
 }
 
-function toast(m) {
-  const el = document.getElementById("toast");
-  if (!el) return;
-  el.textContent = m;
-  el.classList.add("show");
-  setTimeout(() => el.classList.remove("show"), 3500);
+// ============================================================
+// PAINEL LATERAL
+// ============================================================
+function abrirPainel() {
+  const painel = document.getElementById('painel');
+  painel.classList.add('aberto');
+  document.getElementById('painel-titulo').textContent = state.regiaoNome;
 }
 
-function distanciaKm(lat1, lng1, lat2, lng2) {
-  const R = 6371, dLat = (lat2-lat1)*Math.PI/180, dLng = (lng2-lng1)*Math.PI/180;
-  const a = Math.sin(dLat/2)**2 + Math.cos(lat1*Math.PI/180)*Math.cos(lat2*Math.PI/180)*Math.sin(dLng/2)**2;
-  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+function novaBusca() {
+  document.getElementById('painel').classList.remove('aberto');
+  document.getElementById('card-busca').style.display = 'flex';
+  document.getElementById('input-regiao').value = '';
+  limparLayersAnteriores();
+  fecharDrawer();
+  state.dados = null;
 }
 
-function criarIconeCluster(cluster) {
-  const count = cluster.getChildCount(), size = count < 100 ? 34 : 44;
-  return L.divIcon({
-    html: `<div style="background:rgba(26,26,24,0.9);color:#fff;width:${size}px;height:${size}px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:600;border:2px solid #fff;">${count}</div>`,
-    className: "", iconSize: [size, size]
+// ── Stats ──
+function renderStats() {
+  const { clientes, prospects, representantes } = state.dados;
+  const ativos = clientes.filter(c => c.ativo == 1).length;
+  const inativos = clientes.filter(c => c.ativo == 0).length;
+
+  document.getElementById('stat-ativos').textContent = ativos;
+  document.getElementById('stat-inativos').textContent = inativos;
+  document.getElementById('stat-prospects').textContent = prospects.length;
+  document.getElementById('stat-reps').textContent = representantes.length;
+}
+
+// ── Oportunidades ──
+function renderOportunidades() {
+  const { clientes, prospects, representantes } = state.dados;
+  const inativos = clientes.filter(c => c.ativo == 0);
+
+  // Prospects sem representante a < 200km
+  let prospectsSemCob = 0;
+  prospects.forEach(p => {
+    const temCob = representantes.some(r => haversine(p.lat, p.lng, r.lat, r.lng) <= RAIO_PADRAO_KM);
+    if (!temCob) prospectsSemCob++;
   });
-}
 
-function criarIconeClusterProspect(cluster) {
-  const count = cluster.getChildCount(), size = count < 100 ? 34 : 44;
-  return L.divIcon({
-    html: `<div style="background:rgba(37,99,235,0.9);color:#fff;width:${size}px;height:${size}px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:600;border:2px solid #fff;">${count}</div>`,
-    className: "", iconSize: [size, size]
+  // Rep com mais inativos
+  const contInativosPorRep = {};
+  inativos.forEach(c => {
+    const k = c.cd_representant;
+    contInativosPorRep[k] = (contInativosPorRep[k] || 0) + 1;
   });
+  let repMaisInativos = { nome: '—', qtd: 0 };
+  Object.entries(contInativosPorRep).forEach(([cd, qtd]) => {
+    if (qtd > repMaisInativos.qtd) {
+      repMaisInativos = { nome: nomeRep(cd), qtd };
+    }
+  });
+
+  // Município com mais prospects sem cobertura
+  const contMunic = {};
+  prospects.forEach(p => {
+    const temCob = representantes.some(r => haversine(p.lat, p.lng, r.lat, r.lng) <= RAIO_PADRAO_KM);
+    if (!temCob) {
+      const m = p.municipio_uf || p.municipio || 'Desconhecido';
+      contMunic[m] = (contMunic[m] || 0) + 1;
+    }
+  });
+  let municTop = '—';
+  let municTopQtd = 0;
+  Object.entries(contMunic).forEach(([m, q]) => {
+    if (q > municTopQtd) { municTop = m; municTopQtd = q; }
+  });
+
+  const el = document.getElementById('oportunidades');
+  el.innerHTML = `
+    <div class="op-item">
+      <span class="op-icon" style="color:#ef4444">↻</span>
+      <span><strong>${inativos.length}</strong> clientes inativos — potencial de reativação</span>
+    </div>
+    <div class="op-item">
+      <span class="op-icon" style="color:#3b82f6">◎</span>
+      <span><strong>${prospectsSemCob}</strong> prospects sem representante a menos de ${RAIO_PADRAO_KM} km</span>
+    </div>
+    <div class="op-item">
+      <span class="op-icon" style="color:#f59e0b">⚠</span>
+      <span>Rep com mais inativos: <strong>${repMaisInativos.nome}</strong> (${repMaisInativos.qtd})</span>
+    </div>
+    <div class="op-item">
+      <span class="op-icon" style="color:#a78bfa">📍</span>
+      <span>Município com mais prospects sem cobertura: <strong>${municTop}</strong></span>
+    </div>`;
 }
 
-async function chamarAPI(params) {
-  if (!API_URL) return { clientes:[], prospects:[], representantes:[] };
-  const url = new URL(API_URL);
-  Object.entries(params).forEach(([k, v]) => url.searchParams.set(k, v));
-  const r = await fetch(url.toString());
-  return await r.json();
+// ── Listas das abas ──
+function renderListaClientes() {
+  if (!state.dados) return;
+  const filtro = document.getElementById('filtro-clientes').value.toLowerCase();
+  const lista = document.getElementById('lista-clientes');
+  const items = state.dados.clientes.filter(c =>
+    !filtro ||
+    (c.fantasia || '').toLowerCase().includes(filtro) ||
+    (c.municipio || '').toLowerCase().includes(filtro) ||
+    (c.cnpj_cpf || '').toLowerCase().includes(filtro)
+  );
+
+  if (!items.length) {
+    lista.innerHTML = '<div class="lista-vazia">Nenhum cliente encontrado</div>';
+    return;
+  }
+
+  lista.innerHTML = items.map(c => {
+    const ativo = c.ativo == 1;
+    return `
+      <div class="lista-item" onclick="focarMarcador(${c.lat}, ${c.lng})">
+        <div class="lista-item-nome">${c.fantasia || c.nome_completo}</div>
+        <div class="lista-item-sub">
+          <span class="badge-mini ${ativo ? 'ativo' : 'inativo'}">${ativo ? 'Ativo' : 'Inativo'}</span>
+          ${c.municipio}/${c.uf}
+        </div>
+        <div class="lista-item-rep">${nomeRep(c.cd_representant)}</div>
+      </div>`;
+  }).join('');
+}
+
+function renderListaProspects() {
+  if (!state.dados) return;
+  const filtro = document.getElementById('filtro-prospects').value.toLowerCase();
+  const lista = document.getElementById('lista-prospects');
+  const items = state.dados.prospects.filter(p =>
+    !filtro ||
+    (p.nome || '').toLowerCase().includes(filtro) ||
+    (p.municipio || '').toLowerCase().includes(filtro) ||
+    (p.cnae_desc || '').toLowerCase().includes(filtro)
+  );
+
+  if (!items.length) {
+    lista.innerHTML = '<div class="lista-vazia">Nenhum prospect encontrado</div>';
+    return;
+  }
+
+  lista.innerHTML = items.map(p => `
+    <div class="lista-item" onclick="focarMarcador(${p.lat}, ${p.lng})">
+      <div class="lista-item-nome">${p.nome}</div>
+      <div class="lista-item-sub">${p.municipio_uf || p.municipio + '/' + p.uf}</div>
+      <div class="lista-item-rep">${p.cnae_desc || p.cnae || '—'}</div>
+      <div class="lista-item-rep" style="color:#94a3b8">${p.telefone1}</div>
+    </div>`).join('');
+}
+
+function renderListaRepresentantes() {
+  if (!state.dados) return;
+  const filtro = document.getElementById('filtro-representantes').value.toLowerCase();
+  const lista = document.getElementById('lista-representantes');
+  const { clientes } = state.dados;
+
+  const items = state.dados.representantes.filter(r =>
+    !filtro ||
+    (r.fantasia || '').toLowerCase().includes(filtro) ||
+    (r.municipio || '').toLowerCase().includes(filtro) ||
+    (r.divisao || '').toLowerCase().includes(filtro)
+  );
+
+  if (!items.length) {
+    lista.innerHTML = '<div class="lista-vazia">Nenhum representante encontrado</div>';
+    return;
+  }
+
+  lista.innerHTML = items.map(rep => {
+    const qtdAtivos = clientes.filter(c => c.cd_representant == rep.cd_representant && c.ativo == 1).length;
+    return `
+      <div class="lista-item" onclick="focarMarcador(${rep.lat}, ${rep.lng})">
+        <div class="lista-item-nome" style="color:${rep.cor || '#F59E0B'}">${rep.fantasia}</div>
+        <div class="lista-item-sub">${rep.municipio}/${rep.uf}</div>
+        <div class="lista-item-rep">${rep.divisao}</div>
+        <div class="lista-item-rep"><span style="color:#22c55e">●</span> ${qtdAtivos} clientes ativos</div>
+      </div>`;
+  }).join('');
+}
+
+function focarMarcador(lat, lng) {
+  state.map.setView([lat, lng], 14, { animate: true });
+}
+
+// ============================================================
+// MODO REPRESENTANTE (raio + drawer)
+// ============================================================
+function ativarModoRep(rep, marker) {
+  // Limpar modo anterior
+  limparModoRep();
+  state.repAtivo = rep;
+
+  const cor = rep.cor || '#F59E0B';
+
+  // Círculo de raio
+  const circle = L.circle([rep.lat, rep.lng], {
+    radius: RAIO_PADRAO_KM * 1000,
+    color: cor,
+    fillColor: cor,
+    fillOpacity: 0.08,
+    weight: 2,
+    dashArray: '6 4'
+  }).addTo(state.map);
+  state.layers.raioCircle = circle;
+
+  // Classificar clientes e prospects no raio
+  const { clientes, prospects } = state.dados;
+  const clientesNoRaio = clientes.filter(c =>
+    haversine(c.lat, c.lng, rep.lat, rep.lng) <= RAIO_PADRAO_KM
+  );
+  const prospNoRaio = prospects.filter(p =>
+    haversine(p.lat, p.lng, rep.lat, rep.lng) <= RAIO_PADRAO_KM
+  );
+
+  // Highlight markers (borda branca)
+  clientesNoRaio.forEach(c => {
+    const hl = L.circleMarker([c.lat, c.lng], {
+      radius: 9,
+      fillColor: c.ativo == 1 ? '#22c55e' : '#ef4444',
+      color: '#ffffff',
+      weight: 2.5,
+      fillOpacity: 0.9
+    }).addTo(state.map);
+    hl.bindPopup(popupCliente(c));
+    state.layers.highlight.push(hl);
+  });
+
+  prospNoRaio.forEach(p => {
+    const hl = L.marker([p.lat, p.lng], {
+      icon: L.divIcon({
+        html: svgEstrela('#60a5fa', true),
+        className: '',
+        iconSize: [22, 22],
+        iconAnchor: [11, 11]
+      })
+    }).addTo(state.map);
+    hl.bindPopup(popupProspect(p));
+    state.layers.highlight.push(hl);
+  });
+
+  // Atualizar drawer
+  abrirDrawer(rep, clientesNoRaio, prospNoRaio);
+}
+
+function limparModoRep() {
+  if (state.layers.raioCircle) {
+    state.map.removeLayer(state.layers.raioCircle);
+    state.layers.raioCircle = null;
+  }
+  if (state.layers.rota) {
+    state.map.removeLayer(state.layers.rota);
+    state.layers.rota = null;
+  }
+  state.layers.highlight.forEach(l => state.map.removeLayer(l));
+  state.layers.highlight = [];
+}
+
+function abrirDrawer(rep, clientesNoRaio, prospNoRaio) {
+  const cor = rep.cor || '#F59E0B';
+  const ativosNoRaio = clientesNoRaio.filter(c => c.ativo == 1);
+  const inativosNoRaio = clientesNoRaio.filter(c => c.ativo == 0);
+
+  document.getElementById('drawer-avatar').style.borderColor = cor;
+  document.getElementById('drawer-nome').textContent = rep.fantasia;
+  document.getElementById('drawer-divisao').textContent = rep.divisao;
+
+  document.getElementById('drawer-ativos').textContent = ativosNoRaio.length;
+  document.getElementById('drawer-inativos').textContent = inativosNoRaio.length;
+  document.getElementById('drawer-prosp-raio').textContent = prospNoRaio.length;
+
+  // Guarda para rota/CSV
+  state._ativosNoRaio = ativosNoRaio;
+  state._inativosNoRaio = inativosNoRaio;
+  state._prospNoRaio = prospNoRaio;
+
+  document.getElementById('drawer').classList.add('aberto');
+}
+
+function fecharDrawer() {
+  document.getElementById('drawer').classList.remove('aberto');
+  limparModoRep();
+  state.repAtivo = null;
+}
+
+// ============================================================
+// ROTA + EXPORTAR CSV
+// ============================================================
+function rotaECsv() {
+  const rep = state.repAtivo;
+  if (!rep) return;
+
+  const ativos = state._ativosNoRaio || [];
+  const inativos = state._inativosNoRaio || [];
+  const prosp = state._prospNoRaio || [];
+
+  // Ordenar por distância crescente
+  const todos = [
+    ...ativos.map(c => ({ ...c, _tipo: 'Ativo', _dist: haversine(c.lat, c.lng, rep.lat, rep.lng) })),
+    ...inativos.map(c => ({ ...c, _tipo: 'Inativo', _dist: haversine(c.lat, c.lng, rep.lat, rep.lng) })),
+    ...prosp.map(p => ({ ...p, _tipo: 'Prospect', _dist: haversine(p.lat, p.lng, rep.lat, rep.lng) }))
+  ].sort((a, b) => a._dist - b._dist);
+
+  // Rota no mapa
+  if (state.layers.rota) state.map.removeLayer(state.layers.rota);
+  const pontos = [[rep.lat, rep.lng], ...todos.map(t => [t.lat, t.lng])];
+  state.layers.rota = L.polyline(pontos, {
+    color: rep.cor || '#F59E0B',
+    weight: 2.5,
+    opacity: 0.7,
+    dashArray: '8 4'
+  }).addTo(state.map);
+
+  // CSV
+  const linhas = [['Nome', 'CNPJ_CPF', 'Telefone', 'Contato', 'Municipio', 'UF', 'Status', 'Distancia_km']];
+  todos.forEach(t => {
+    if (t._tipo === 'Prospect') {
+      linhas.push([t.nome, t.cnpj, t.telefone1, '', t.municipio, t.uf, 'Prospect', t._dist.toFixed(1)]);
+    } else {
+      linhas.push([t.fantasia || t.nome_completo, t.cnpj_cpf, t.fone, t.contato, t.municipio, t.uf, t._tipo, t._dist.toFixed(1)]);
+    }
+  });
+
+  const csv = linhas.map(l => l.map(v => `"${(v || '').toString().replace(/"/g, '""')}"`).join(',')).join('\n');
+  downloadCSV(csv, `rota_${rep.fantasia.replace(/\s+/g, '_')}.csv`);
+}
+
+function downloadCSV(conteudo, nome) {
+  const blob = new Blob(['\uFEFF' + conteudo], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = nome;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+// ============================================================
+// ÍCONES SVG
+// ============================================================
+function svgEstrela(cor, borda = false) {
+  const stroke = borda ? 'stroke="white" stroke-width="1.5"' : '';
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="20" height="20">
+    <polygon points="12,2 15.09,8.26 22,9.27 17,14.14 18.18,21.02 12,17.77 5.82,21.02 7,14.14 2,9.27 8.91,8.26" fill="${cor}" ${stroke}/>
+  </svg>`;
+}
+
+function svgBoneco(cor) {
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 40" width="32" height="40">
+    <circle cx="16" cy="9" r="7" fill="${cor}"/>
+    <path d="M4 32 Q4 20 16 20 Q28 20 28 32 Z" fill="${cor}"/>
+    <circle cx="16" cy="9" r="7" fill="${cor}" opacity="0.3"/>
+  </svg>`;
+}
+
+// ============================================================
+// UTILITÁRIOS
+// ============================================================
+
+// Distância Haversine em km
+function haversine(lat1, lng1, lat2, lng2) {
+  const R = 6371;
+  const dLat = (lat2 - lat1) * Math.PI / 180;
+  const dLng = (lng2 - lng1) * Math.PI / 180;
+  const a = Math.sin(dLat / 2) ** 2 +
+    Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * Math.sin(dLng / 2) ** 2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 }
