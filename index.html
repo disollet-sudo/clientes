@@ -1,700 +1,854 @@
 <!DOCTYPE html>
 <html lang="pt-BR">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Di Solle — Mapa de Clientes</title>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Gestão Comercial — Vendas Externas</title>
 
-  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
-  <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.css"/>
-  <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.Default.css"/>
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <!-- Leaflet -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.css" />
+  <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.Default.css" />
+
+  <!-- Google Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
 
   <style>
+    /* ─── Reset & Base ─────────────────────────────────────── */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
     :root {
-      --bg: #0f1117;
-      --surface: #1a1d27;
-      --surface2: #222636;
-      --border: rgba(255,255,255,0.08);
-      --text: #f0f0f0;
-      --muted: #8a8fa8;
-      --ativo: #22c55e;
-      --inativo: #ef4444;
-      --prospect: #f59e0b;
-      --rep: #a78bfa;
-      --accent: #6366f1;
-      --panel-w: 340px;
+      --bg:        #0f1117;
+      --surface:   #161b27;
+      --surface2:  #1e2535;
+      --border:    #2a3347;
+      --text:      #e2e8f0;
+      --muted:     #64748b;
+      --accent:    #3b82f6;
+
+      --verde:     #22c55e;
+      --vermelho:  #ef4444;
+      --azul:      #3b82f6;
+      --amarelo:   #f59e0b;
+
+      --painel-w:  340px;
+      --drawer-h:  220px;
+      --radius:    10px;
     }
 
-    * { box-sizing: border-box; margin: 0; padding: 0; }
-    html, body { width: 100%; height: 100%; font-family: 'Inter', sans-serif; background: var(--bg); color: var(--text); overflow: hidden; }
+    html, body {
+      height: 100%;
+      font-family: 'Inter', sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      overflow: hidden;
+    }
 
-    /* ── MAPA FULL SCREEN ── */
+    /* ─── Mapa fullscreen ───────────────────────────────────── */
     #map {
       position: fixed;
       inset: 0;
       z-index: 1;
     }
 
-    /* ── OVERLAY DE BOAS-VINDAS (popup inicial) ── */
-    #welcome-overlay {
+    /* ─── Card de busca inicial ─────────────────────────────── */
+    #card-busca {
       position: fixed;
       inset: 0;
-      z-index: 9000;
-      background: rgba(10, 12, 20, 0.75);
-      backdrop-filter: blur(8px);
+      z-index: 100;
       display: flex;
       align-items: center;
       justify-content: center;
-      transition: opacity 0.4s;
-    }
-    #welcome-overlay.hidden {
-      opacity: 0;
-      pointer-events: none;
+      background: rgba(15, 17, 23, 0.72);
+      backdrop-filter: blur(6px);
     }
 
-    .welcome-card {
+    .busca-box {
       background: var(--surface);
       border: 1px solid var(--border);
-      border-radius: 20px;
-      padding: 40px 44px;
-      width: 480px;
-      max-width: 92vw;
-      box-shadow: 0 32px 80px rgba(0,0,0,0.6);
+      border-radius: 16px;
+      padding: 36px 32px;
+      width: min(440px, 92vw);
+      box-shadow: 0 24px 64px rgba(0,0,0,0.6);
     }
 
-    .welcome-logo {
-      font-size: 13px;
-      font-weight: 700;
-      letter-spacing: 0.18em;
-      color: var(--muted);
-      text-transform: uppercase;
-      margin-bottom: 24px;
-    }
-
-    .welcome-title {
-      font-size: 26px;
-      font-weight: 700;
-      line-height: 1.25;
-      margin-bottom: 8px;
-    }
-
-    .welcome-sub {
-      font-size: 14px;
-      color: var(--muted);
-      margin-bottom: 32px;
-      line-height: 1.6;
-    }
-
-    .search-wrap {
-      position: relative;
-      margin-bottom: 12px;
-    }
-
-    .search-icon {
-      position: absolute;
-      left: 14px;
-      top: 50%;
-      transform: translateY(-50%);
-      font-size: 17px;
-      pointer-events: none;
-    }
-
-    #input-busca-welcome {
-      width: 100%;
-      padding: 14px 14px 14px 44px;
-      font-size: 15px;
-      font-family: 'Inter', sans-serif;
-      border: 1.5px solid var(--border);
-      border-radius: 12px;
-      background: var(--surface2);
-      color: var(--text);
-      outline: none;
-      transition: border-color 0.2s;
-    }
-    #input-busca-welcome:focus { border-color: var(--accent); }
-    #input-busca-welcome::placeholder { color: var(--muted); }
-
-    .search-hint {
-      font-size: 12px;
-      color: var(--muted);
-      margin-bottom: 20px;
-      padding-left: 4px;
-    }
-
-    .btn-buscar {
-      width: 100%;
-      padding: 14px;
-      font-size: 15px;
-      font-weight: 600;
-      font-family: 'Inter', sans-serif;
-      background: var(--accent);
-      color: #fff;
-      border: none;
-      border-radius: 12px;
-      cursor: pointer;
-      transition: background 0.2s, transform 0.1s;
-    }
-    .btn-buscar:hover { background: #4f52e0; }
-    .btn-buscar:active { transform: scale(0.98); }
-    .btn-buscar:disabled { background: #3a3d5c; color: var(--muted); cursor: not-allowed; }
-
-    .welcome-legend {
-      margin-top: 28px;
-      padding-top: 20px;
-      border-top: 1px solid var(--border);
-      display: flex;
-      gap: 16px;
-      flex-wrap: wrap;
-    }
-    .leg-item {
-      display: flex;
-      align-items: center;
-      gap: 7px;
-      font-size: 12px;
-      color: var(--muted);
-    }
-    .leg-dot {
-      width: 10px; height: 10px;
-      border-radius: 50%;
-      flex-shrink: 0;
-    }
-
-    /* ── PAINEL LATERAL ── */
-    #painel {
-      position: fixed;
-      top: 0;
-      left: 0;
-      width: var(--panel-w);
-      height: 100vh;
-      background: var(--surface);
-      border-right: 1px solid var(--border);
-      z-index: 800;
-      display: flex;
-      flex-direction: column;
-      transform: translateX(calc(-1 * var(--panel-w)));
-      transition: transform 0.3s cubic-bezier(0.4,0,0.2,1);
-      overflow: hidden;
-    }
-    #painel.open { transform: translateX(0); }
-
-    .painel-header {
-      padding: 18px 20px 14px;
-      border-bottom: 1px solid var(--border);
+    .busca-logo {
       display: flex;
       align-items: center;
       gap: 10px;
+      margin-bottom: 24px;
+    }
+
+    .busca-logo-icon {
+      width: 36px;
+      height: 36px;
+      background: var(--accent);
+      border-radius: 8px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 18px;
+    }
+
+    .busca-logo-text {
+      font-size: 15px;
+      font-weight: 600;
+      color: var(--text);
+      line-height: 1.2;
+    }
+
+    .busca-logo-text small {
+      display: block;
+      font-size: 11px;
+      font-weight: 400;
+      color: var(--muted);
+    }
+
+    .busca-box h2 {
+      font-size: 20px;
+      font-weight: 700;
+      margin-bottom: 6px;
+    }
+
+    .busca-box p {
+      font-size: 13px;
+      color: var(--muted);
+      margin-bottom: 20px;
+    }
+
+    .busca-input-row {
+      display: flex;
+      gap: 8px;
+    }
+
+    #input-regiao {
+      flex: 1;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      color: var(--text);
+      padding: 10px 14px;
+      font-size: 14px;
+      font-family: inherit;
+      outline: none;
+      transition: border-color 0.2s;
+    }
+
+    #input-regiao:focus {
+      border-color: var(--accent);
+    }
+
+    #input-regiao::placeholder {
+      color: var(--muted);
+    }
+
+    #btn-buscar {
+      background: var(--accent);
+      color: #fff;
+      border: none;
+      border-radius: var(--radius);
+      padding: 10px 18px;
+      font-size: 14px;
+      font-weight: 600;
+      font-family: inherit;
+      cursor: pointer;
+      transition: opacity 0.2s;
+      white-space: nowrap;
+    }
+
+    #btn-buscar:hover { opacity: 0.85; }
+    #btn-buscar:disabled { opacity: 0.5; cursor: not-allowed; }
+
+    .busca-sugestoes {
+      display: flex;
+      gap: 6px;
+      flex-wrap: wrap;
+      margin-top: 12px;
+    }
+
+    .sug-chip {
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: 20px;
+      padding: 4px 10px;
+      font-size: 11px;
+      color: var(--muted);
+      cursor: pointer;
+      transition: border-color 0.2s, color 0.2s;
+    }
+
+    .sug-chip:hover {
+      border-color: var(--accent);
+      color: var(--text);
+    }
+
+    /* ─── Loading overlay ───────────────────────────────────── */
+    #loading {
+      position: fixed;
+      inset: 0;
+      z-index: 200;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      background: rgba(15, 17, 23, 0.75);
+      backdrop-filter: blur(4px);
+      flex-direction: column;
+      gap: 16px;
+    }
+
+    .spinner {
+      width: 40px;
+      height: 40px;
+      border: 3px solid var(--border);
+      border-top-color: var(--accent);
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+    }
+
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    #loading p {
+      font-size: 14px;
+      color: var(--muted);
+    }
+
+    /* ─── Painel lateral ────────────────────────────────────── */
+    #painel {
+      position: fixed;
+      top: 0;
+      left: calc(-1 * var(--painel-w));
+      width: var(--painel-w);
+      height: 100%;
+      z-index: 50;
+      display: flex;
+      flex-direction: column;
+      background: var(--surface);
+      border-right: 1px solid var(--border);
+      transition: left 0.35s cubic-bezier(0.4, 0, 0.2, 1);
+      overflow: hidden;
+    }
+
+    #painel.aberto {
+      left: 0;
+    }
+
+    .painel-header {
+      padding: 18px 16px 14px;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
       flex-shrink: 0;
     }
-    .painel-logo { font-size: 12px; font-weight: 700; letter-spacing: 0.15em; color: var(--muted); text-transform: uppercase; flex: 1; }
-    .painel-regiao {
-      font-size: 11px;
-      font-weight: 600;
-      background: rgba(99,102,241,0.15);
-      color: var(--accent);
-      padding: 3px 10px;
-      border-radius: 20px;
-      max-width: 140px;
+
+    #painel-titulo {
+      font-size: 15px;
+      font-weight: 700;
+      color: var(--text);
       white-space: nowrap;
       overflow: hidden;
       text-overflow: ellipsis;
     }
 
-    .btn-nova-busca {
-      padding: 6px 12px;
-      font-size: 12px;
-      font-family: 'Inter', sans-serif;
-      font-weight: 600;
+    #btn-nova-busca {
       background: var(--surface2);
-      color: var(--text);
       border: 1px solid var(--border);
-      border-radius: 8px;
+      border-radius: 7px;
+      color: var(--muted);
+      padding: 5px 10px;
+      font-size: 11px;
+      font-family: inherit;
       cursor: pointer;
+      white-space: nowrap;
+      transition: color 0.2s, border-color 0.2s;
     }
-    .btn-nova-busca:hover { border-color: var(--accent); color: var(--accent); }
 
-    /* ── CARDS DE STATS ── */
+    #btn-nova-busca:hover {
+      color: var(--text);
+      border-color: var(--accent);
+    }
+
+    /* Stats */
     .stats-grid {
       display: grid;
       grid-template-columns: 1fr 1fr;
       gap: 8px;
-      padding: 14px 16px;
-      border-bottom: 1px solid var(--border);
+      padding: 12px 16px;
       flex-shrink: 0;
     }
+
     .stat-card {
       background: var(--surface2);
-      border-radius: 10px;
-      padding: 12px 14px;
-      cursor: pointer;
-      transition: background 0.15s;
-      border: 1px solid transparent;
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 10px 12px;
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
     }
-    .stat-card:hover { background: #2a2f44; }
-    .stat-card.active-filter { border-color: var(--accent); }
-    .stat-num {
+
+    .stat-card .stat-num {
       font-size: 22px;
       font-weight: 700;
       line-height: 1;
-      margin-bottom: 4px;
-    }
-    .stat-label {
-      font-size: 11px;
-      color: var(--muted);
-      font-weight: 500;
-    }
-    .stat-sub {
-      font-size: 10px;
-      color: var(--muted);
-      margin-top: 3px;
-      opacity: 0.7;
     }
 
-    /* ── ALERTA DE OPORTUNIDADE ── */
-    .oportunidade-box {
-      margin: 0 16px 14px;
-      background: rgba(99,102,241,0.08);
-      border: 1px solid rgba(99,102,241,0.25);
-      border-radius: 10px;
-      padding: 12px 14px;
+    .stat-card .stat-label {
+      font-size: 10px;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: var(--muted);
+    }
+
+    .stat-verde .stat-num { color: var(--verde); }
+    .stat-vermelho .stat-num { color: var(--vermelho); }
+    .stat-azul .stat-num { color: var(--azul); }
+    .stat-amarelo .stat-num { color: var(--amarelo); }
+
+    /* Oportunidades */
+    .op-titulo {
+      font-size: 11px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: var(--muted);
+      padding: 0 16px 6px;
       flex-shrink: 0;
     }
-    .oport-titulo { font-size: 12px; font-weight: 600; color: var(--accent); margin-bottom: 6px; }
-    .oport-item {
-      font-size: 11px;
-      color: var(--muted);
+
+    #oportunidades {
+      padding: 0 16px 10px;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      flex-shrink: 0;
+    }
+
+    .op-item {
       display: flex;
       align-items: flex-start;
-      gap: 6px;
-      margin-bottom: 4px;
+      gap: 8px;
+      font-size: 12px;
+      color: var(--text);
       line-height: 1.4;
     }
-    .oport-item:last-child { margin-bottom: 0; }
-    .oport-emoji { flex-shrink: 0; }
 
-    /* ── ABAS ── */
-    .abas {
+    .op-icon {
+      flex-shrink: 0;
+      font-size: 14px;
+      margin-top: 1px;
+    }
+
+    /* Abas */
+    .tabs-header {
       display: flex;
       border-bottom: 1px solid var(--border);
       flex-shrink: 0;
     }
-    .aba-btn {
+
+    .tab-btn {
       flex: 1;
-      padding: 10px 4px;
-      font-size: 12px;
-      font-weight: 500;
-      font-family: 'Inter', sans-serif;
       background: none;
       border: none;
-      cursor: pointer;
-      color: var(--muted);
       border-bottom: 2px solid transparent;
-      transition: all 0.15s;
-    }
-    .aba-btn.active { color: var(--text); border-bottom-color: var(--accent); }
-
-    .aba-conteudo { display: none; flex-direction: column; flex: 1; overflow: hidden; }
-    .aba-conteudo.active { display: flex; }
-
-    /* ── LISTA ITEMS ── */
-    .lista-scroll { flex: 1; overflow-y: auto; }
-    .lista-scroll::-webkit-scrollbar { width: 4px; }
-    .lista-scroll::-webkit-scrollbar-track { background: transparent; }
-    .lista-scroll::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
-
-    .item-lista {
-      padding: 11px 16px;
-      border-bottom: 1px solid var(--border);
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 600;
+      font-family: inherit;
+      padding: 10px 4px;
       cursor: pointer;
-      transition: background 0.1s;
-      display: flex;
-      align-items: flex-start;
-      gap: 10px;
+      transition: color 0.2s, border-color 0.2s;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
     }
-    .item-lista:hover { background: var(--surface2); }
-    .item-icon {
-      width: 28px;
-      height: 28px;
+
+    .tab-btn.active {
+      color: var(--accent);
+      border-bottom-color: var(--accent);
+    }
+
+    .tab-btn:hover {
+      color: var(--text);
+    }
+
+    .tabs-body {
+      flex: 1;
+      overflow: hidden;
+      position: relative;
+    }
+
+    .tab-content {
+      display: none;
+      flex-direction: column;
+      height: 100%;
+      overflow: hidden;
+    }
+
+    .tab-content.active {
+      display: flex;
+    }
+
+    .tab-filtro {
+      padding: 8px 12px;
+      flex-shrink: 0;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .tab-filtro input {
+      width: 100%;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 7px;
+      color: var(--text);
+      padding: 7px 10px;
+      font-size: 12px;
+      font-family: inherit;
+      outline: none;
+    }
+
+    .tab-filtro input:focus { border-color: var(--accent); }
+    .tab-filtro input::placeholder { color: var(--muted); }
+
+    .tab-lista {
+      flex: 1;
+      overflow-y: auto;
+      padding: 6px 8px;
+    }
+
+    .tab-lista::-webkit-scrollbar { width: 4px; }
+    .tab-lista::-webkit-scrollbar-track { background: transparent; }
+    .tab-lista::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+
+    .lista-item {
+      padding: 9px 10px;
+      border-radius: 8px;
+      cursor: pointer;
+      transition: background 0.15s;
+      margin-bottom: 2px;
+    }
+
+    .lista-item:hover {
+      background: var(--surface2);
+    }
+
+    .lista-item-nome {
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--text);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .lista-item-sub {
+      font-size: 11px;
+      color: var(--muted);
+      margin-top: 2px;
+      display: flex;
+      align-items: center;
+      gap: 5px;
+    }
+
+    .lista-item-rep {
+      font-size: 11px;
+      color: var(--muted);
+      margin-top: 1px;
+    }
+
+    .lista-vazia {
+      text-align: center;
+      padding: 24px;
+      font-size: 12px;
+      color: var(--muted);
+    }
+
+    /* Mini badges nas listas */
+    .badge-mini {
+      display: inline-block;
+      padding: 1px 5px;
+      border-radius: 4px;
+      font-size: 10px;
+      font-weight: 600;
+    }
+
+    .badge-mini.ativo { background: rgba(34,197,94,0.15); color: var(--verde); }
+    .badge-mini.inativo { background: rgba(239,68,68,0.15); color: var(--vermelho); }
+
+    /* ─── Drawer representante ──────────────────────────────── */
+    #drawer {
+      position: fixed;
+      bottom: calc(-1 * var(--drawer-h));
+      left: var(--painel-w);
+      right: 0;
+      height: var(--drawer-h);
+      z-index: 60;
+      background: var(--surface);
+      border-top: 1px solid var(--border);
+      border-left: 1px solid var(--border);
+      display: flex;
+      flex-direction: column;
+      transition: bottom 0.35s cubic-bezier(0.4, 0, 0.2, 1);
+      padding: 16px 20px;
+    }
+
+    #drawer.aberto {
+      bottom: 0;
+    }
+
+    .drawer-header {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin-bottom: 14px;
+    }
+
+    #drawer-avatar {
+      width: 40px;
+      height: 40px;
       border-radius: 50%;
+      border: 2px solid var(--amarelo);
+      background: var(--surface2);
       display: flex;
       align-items: center;
       justify-content: center;
-      font-size: 13px;
-      flex-shrink: 0;
-      margin-top: 1px;
-    }
-    .item-dados { flex: 1; min-width: 0; }
-    .item-nome { font-size: 12.5px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-    .item-info { font-size: 11px; color: var(--muted); margin-top: 2px; }
-
-    .badge {
-      display: inline-block;
-      font-size: 9.5px;
-      padding: 1px 7px;
-      border-radius: 10px;
-      font-weight: 600;
-    }
-    .badge.ativo   { background: rgba(34,197,94,0.15); color: var(--ativo); }
-    .badge.inativo { background: rgba(239,68,68,0.15); color: var(--inativo); }
-    .badge.prospect{ background: rgba(245,158,11,0.15); color: var(--prospect); }
-
-    /* ── PAINEL DE REPRESENTANTE (clicado) ── */
-    #rep-detalhe {
-      position: fixed;
-      bottom: 0;
-      left: 0;
-      right: 0;
-      z-index: 850;
-      background: var(--surface);
-      border-top: 1px solid var(--border);
-      padding: 16px 20px;
-      transform: translateY(100%);
-      transition: transform 0.3s;
-    }
-    #rep-detalhe.open { transform: translateY(0); }
-    .rep-det-header { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
-    .rep-avatar {
-      width: 38px; height: 38px;
-      border-radius: 50%;
-      display: flex; align-items: center; justify-content: center;
       font-size: 18px;
       flex-shrink: 0;
     }
-    .rep-det-nome { font-size: 14px; font-weight: 600; flex: 1; }
-    .btn-fechar-rep {
-      background: none; border: none; color: var(--muted); cursor: pointer; font-size: 20px; line-height: 1;
+
+    .drawer-info {
+      flex: 1;
+      min-width: 0;
     }
-    .rep-det-stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
-    .rep-det-stat {
+
+    #drawer-nome {
+      font-size: 15px;
+      font-weight: 700;
+    }
+
+    #drawer-divisao {
+      font-size: 12px;
+      color: var(--muted);
+    }
+
+    #btn-fechar-drawer {
+      background: none;
+      border: none;
+      color: var(--muted);
+      font-size: 20px;
+      cursor: pointer;
+      padding: 4px;
+      line-height: 1;
+    }
+
+    .drawer-stats {
+      display: flex;
+      gap: 10px;
+      margin-bottom: 14px;
+    }
+
+    .drawer-stat {
+      flex: 1;
       background: var(--surface2);
+      border: 1px solid var(--border);
       border-radius: 8px;
       padding: 8px 10px;
       text-align: center;
     }
-    .rep-det-stat strong { display: block; font-size: 18px; font-weight: 700; }
-    .rep-det-stat span { font-size: 10px; color: var(--muted); }
-    .btn-rota {
-      width: 100%;
-      margin-top: 12px;
-      padding: 11px;
-      font-size: 13px;
-      font-weight: 600;
-      font-family: 'Inter', sans-serif;
-      background: rgba(99,102,241,0.15);
-      color: var(--accent);
-      border: 1px solid rgba(99,102,241,0.3);
-      border-radius: 10px;
-      cursor: pointer;
-      transition: background 0.2s;
-    }
-    .btn-rota:hover { background: rgba(99,102,241,0.25); }
 
-    /* ── BOTÃO TOGGLE PAINEL ── */
-    #btn-toggle {
-      position: fixed;
-      top: 16px;
-      left: 16px;
-      z-index: 810;
-      background: var(--surface);
-      border: 1px solid var(--border);
-      border-radius: 12px;
-      padding: 10px 14px;
-      cursor: pointer;
-      color: var(--text);
-      font-size: 14px;
-      font-family: 'Inter', sans-serif;
-      font-weight: 600;
-      display: none;
-      gap: 8px;
-      align-items: center;
-      box-shadow: 0 4px 20px rgba(0,0,0,0.4);
-      transition: background 0.2s;
+    .drawer-stat .ds-num {
+      font-size: 18px;
+      font-weight: 700;
     }
-    #btn-toggle.visible { display: flex; }
-    #btn-toggle:hover { background: var(--surface2); }
 
-    /* ── BOTÃO NOVA BUSCA NO MAPA ── */
-    #btn-map-busca {
-      position: fixed;
-      top: 16px;
-      left: 50%;
-      transform: translateX(-50%);
-      z-index: 810;
-      background: var(--surface);
-      border: 1px solid var(--border);
-      border-radius: 50px;
-      padding: 10px 20px;
-      cursor: pointer;
+    .drawer-stat .ds-label {
+      font-size: 9px;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
       color: var(--muted);
+      margin-top: 2px;
+    }
+
+    .ds-verde .ds-num { color: var(--verde); }
+    .ds-vermelho .ds-num { color: var(--vermelho); }
+    .ds-azul .ds-num { color: var(--azul); }
+    .ds-amarelo .ds-num { color: var(--amarelo); }
+
+    #btn-rota-csv {
+      background: var(--accent);
+      color: #fff;
+      border: none;
+      border-radius: var(--radius);
+      padding: 10px 18px;
       font-size: 13px;
-      font-family: 'Inter', sans-serif;
-      display: none;
-      align-items: center;
-      gap: 8px;
-      box-shadow: 0 4px 20px rgba(0,0,0,0.4);
-      transition: all 0.2s;
+      font-weight: 600;
+      font-family: inherit;
+      cursor: pointer;
+      width: 100%;
+      transition: opacity 0.2s;
     }
-    #btn-map-busca.visible { display: flex; }
-    #btn-map-busca:hover { border-color: var(--accent); color: var(--text); }
 
-    /* ── LOADING ── */
-    #loading {
-      position: fixed;
-      inset: 0;
-      z-index: 8000;
-      background: rgba(10,12,20,0.8);
-      backdrop-filter: blur(4px);
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      justify-content: center;
-      gap: 16px;
-    }
-    #loading.hidden { display: none; }
-    .spinner {
-      width: 36px; height: 36px;
-      border: 3px solid rgba(255,255,255,0.1);
-      border-top-color: var(--accent);
-      border-radius: 50%;
-      animation: spin 0.7s linear infinite;
-    }
-    @keyframes spin { to { transform: rotate(360deg); } }
-    #loading p { font-size: 14px; color: var(--muted); }
+    #btn-rota-csv:hover { opacity: 0.85; }
 
-    /* ── TOAST ── */
-    #toast {
-      position: fixed;
-      bottom: 24px;
-      left: 50%;
-      transform: translateX(-50%) translateY(10px);
-      background: var(--surface);
-      border: 1px solid var(--border);
-      color: var(--text);
-      padding: 10px 20px;
-      border-radius: 30px;
-      font-size: 13px;
-      z-index: 9999;
-      opacity: 0;
-      transition: all 0.3s;
-      pointer-events: none;
-      white-space: nowrap;
-    }
-    #toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
-
-    /* ── LEAFLET OVERRIDES ── */
+    /* ─── Popups Leaflet ────────────────────────────────────── */
     .leaflet-popup-content-wrapper {
       background: var(--surface) !important;
-      color: var(--text) !important;
       border: 1px solid var(--border) !important;
-      border-radius: 14px !important;
+      border-radius: var(--radius) !important;
+      color: var(--text) !important;
       box-shadow: 0 8px 32px rgba(0,0,0,0.5) !important;
     }
-    .leaflet-popup-tip { background: var(--surface) !important; }
-    .leaflet-popup-content { margin: 14px 16px !important; font-family: 'Inter', sans-serif; }
-    .leaflet-container { background: #1a1d27; }
 
-    .popup-nome { font-size: 14px; font-weight: 600; margin-bottom: 6px; }
-    .popup-info { font-size: 12px; color: var(--muted); line-height: 1.7; }
-    .popup-info b { color: var(--text); }
-    .popup-info hr { border: none; border-top: 1px solid var(--border); margin: 8px 0; }
-
-    .filtro-lista {
-      padding: 10px 12px;
-      border-bottom: 1px solid var(--border);
-      flex-shrink: 0;
+    .leaflet-popup-tip {
+      background: var(--surface) !important;
     }
-    .filtro-lista input {
-      width: 100%;
-      padding: 8px 12px;
-      font-size: 12px;
-      font-family: 'Inter', sans-serif;
-      border: 1px solid var(--border);
-      border-radius: 8px;
-      background: var(--surface2);
-      color: var(--text);
-      outline: none;
-    }
-    .filtro-lista input:focus { border-color: var(--accent); }
-    .filtro-lista input::placeholder { color: var(--muted); }
 
-    .empty-msg {
-      padding: 30px 20px;
-      text-align: center;
-      color: var(--muted);
+    .leaflet-popup-content {
+      margin: 0 !important;
+    }
+
+    .popup-card {
+      padding: 12px 14px;
+      min-width: 200px;
+    }
+
+    .popup-header {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      margin-bottom: 10px;
       font-size: 13px;
     }
 
-    /* ── REP CARD na lista ── */
-    .rep-item {
-      padding: 12px 16px;
-      border-bottom: 1px solid var(--border);
-      cursor: pointer;
-      transition: background 0.1s;
+    .popup-badge {
+      padding: 2px 7px;
+      border-radius: 5px;
+      font-size: 10px;
+      font-weight: 700;
+      flex-shrink: 0;
     }
-    .rep-item:hover { background: var(--surface2); }
-    .rep-item-header { display: flex; align-items: center; gap: 10px; margin-bottom: 6px; }
-    .rep-mini-dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
-    .rep-item-nome { font-size: 13px; font-weight: 600; flex: 1; }
-    .rep-item-info { font-size: 11px; color: var(--muted); }
-    .rep-item-stats { display: flex; gap: 14px; margin-top: 8px; }
-    .rep-mini-stat { font-size: 11px; }
-    .rep-mini-stat strong { font-weight: 600; }
+
+    .popup-badge.ativo { background: rgba(34,197,94,0.15); color: var(--verde); }
+    .popup-badge.inativo { background: rgba(239,68,68,0.15); color: var(--vermelho); }
+    .popup-badge.prospect { background: rgba(59,130,246,0.15); color: var(--azul); }
+    .popup-badge.rep { background: rgba(245,158,11,0.15); color: var(--amarelo); }
+
+    .popup-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 10px;
+      font-size: 11px;
+      padding: 3px 0;
+      border-bottom: 1px solid var(--border);
+      color: var(--text);
+    }
+
+    .popup-row:last-child { border-bottom: none; }
+
+    .popup-row > span:first-child {
+      color: var(--muted);
+      flex-shrink: 0;
+    }
+
+    .popup-row > span:last-child {
+      text-align: right;
+      word-break: break-word;
+    }
+
+    /* ─── Cluster customizado ───────────────────────────────── */
+    .marker-cluster-small,
+    .marker-cluster-medium,
+    .marker-cluster-large {
+      background: rgba(59, 130, 246, 0.15) !important;
+      border: 1px solid rgba(59, 130, 246, 0.4) !important;
+    }
+
+    .marker-cluster-small div,
+    .marker-cluster-medium div,
+    .marker-cluster-large div {
+      background: rgba(59, 130, 246, 0.4) !important;
+      color: #fff !important;
+      font-family: 'Inter', sans-serif !important;
+      font-weight: 700 !important;
+    }
+
+    /* ─── Mobile ────────────────────────────────────────────── */
+    @media (max-width: 640px) {
+      :root {
+        --painel-w: 100vw;
+        --drawer-h: 240px;
+      }
+
+      #drawer {
+        left: 0;
+      }
+
+      #painel {
+        height: 60vh;
+        top: auto;
+        bottom: calc(-60vh);
+        left: 0;
+        width: 100%;
+        border-right: none;
+        border-top: 1px solid var(--border);
+        transition: bottom 0.35s cubic-bezier(0.4, 0, 0.2, 1);
+      }
+
+      #painel.aberto {
+        bottom: 0;
+        left: 0;
+      }
+
+      #drawer.aberto {
+        bottom: 60vh;
+      }
+    }
   </style>
 </head>
+
 <body>
 
-<!-- MAPA FULL SCREEN -->
-<div id="map"></div>
+  <!-- Mapa fullscreen -->
+  <div id="map"></div>
 
-<!-- OVERLAY INICIAL DE BUSCA -->
-<div id="welcome-overlay">
-  <div class="welcome-card">
-    <div class="welcome-logo">Di Solle · Gestão Comercial</div>
-    <div class="welcome-title">Para qual região vamos trabalhar hoje?</div>
-    <div class="welcome-sub">Busque uma cidade, bairro, rua ou estado para carregar os dados daquela região no mapa.</div>
-
-    <div class="search-wrap">
-      <span class="search-icon">🔍</span>
-      <input type="text" id="input-busca-welcome"
-             placeholder="Ex: Gramado, RS · Florianópolis · Centro, Caxias"
-             autocomplete="off"
-             onkeypress="if(event.key==='Enter') iniciarBusca()">
-    </div>
-    <div class="search-hint">Bairro, cidade, estado ou endereço completo</div>
-
-    <button class="btn-buscar" id="btn-buscar-welcome" onclick="iniciarBusca()">
-      Carregar região no mapa →
-    </button>
-
-    <div class="welcome-legend">
-      <div class="leg-item"><div class="leg-dot" style="background:var(--ativo)"></div> Cliente ativo</div>
-      <div class="leg-item"><div class="leg-dot" style="background:var(--inativo)"></div> Cliente inativo</div>
-      <div class="leg-item"><div class="leg-dot" style="background:var(--prospect)"></div> Prospect</div>
-      <div class="leg-item"><div class="leg-dot" style="background:var(--rep); border:2px solid #7c3aed"></div> Representante</div>
-    </div>
-  </div>
-</div>
-
-<!-- BOTÃO TOGGLE PAINEL -->
-<button id="btn-toggle" onclick="togglePainel()">
-  <span id="toggle-icon">☰</span>
-  <span id="toggle-label">Painel</span>
-</button>
-
-<!-- BOTÃO NOVA BUSCA NO MAPA -->
-<button id="btn-map-busca" onclick="novaBusca()">
-  🔍 <span id="regiao-label-top">Trocar região</span>
-</button>
-
-<!-- PAINEL LATERAL -->
-<div id="painel">
-  <div class="painel-header">
-    <span class="painel-logo">Di Solle</span>
-    <span class="painel-regiao" id="painel-regiao-nome">—</span>
-    <button class="btn-nova-busca" onclick="novaBusca()">Nova busca</button>
+  <!-- Loading -->
+  <div id="loading">
+    <div class="spinner"></div>
+    <p>Carregando dados da região…</p>
   </div>
 
-  <!-- STATS GRID -->
-  <div class="stats-grid">
-    <div class="stat-card" onclick="filtrarPorStatus('ativo')">
-      <div class="stat-num" style="color:var(--ativo)" id="stat-ativos">0</div>
-      <div class="stat-label">Clientes Ativos</div>
-      <div class="stat-sub" id="stat-ativos-pct">— % do total</div>
-    </div>
-    <div class="stat-card" onclick="filtrarPorStatus('inativo')">
-      <div class="stat-num" style="color:var(--inativo)" id="stat-inativos">0</div>
-      <div class="stat-label">Clientes Inativos</div>
-      <div class="stat-sub" id="stat-inativos-pct">— % do total</div>
-    </div>
-    <div class="stat-card" onclick="switchAba('prospects', document.querySelector('[data-aba=prospects]'))">
-      <div class="stat-num" style="color:var(--prospect)" id="stat-prospects">0</div>
-      <div class="stat-label">Prospects</div>
-      <div class="stat-sub" id="stat-prospects-sub">na região</div>
-    </div>
-    <div class="stat-card" onclick="switchAba('representantes', document.querySelector('[data-aba=representantes]'))">
-      <div class="stat-num" style="color:var(--rep)" id="stat-reps">0</div>
-      <div class="stat-label">Representantes</div>
-      <div class="stat-sub" id="stat-reps-sub">ativos na região</div>
+  <!-- Card de busca -->
+  <div id="card-busca">
+    <div class="busca-box">
+      <div class="busca-logo">
+        <div class="busca-logo-icon">🗺</div>
+        <div class="busca-logo-text">
+          Gestão Comercial
+          <small>Vendas Externas</small>
+        </div>
+      </div>
+      <h2>Qual região quer trabalhar hoje?</h2>
+      <p>Digite uma cidade, estado, bairro ou região para começar.</p>
+      <div class="busca-input-row">
+        <input type="text" id="input-regiao" placeholder="Ex: Bahia, São Paulo, Curitiba…" autocomplete="off" />
+        <button id="btn-buscar">Buscar</button>
+      </div>
+      <div class="busca-sugestoes">
+        <span class="sug-chip" onclick="sugerir('Bahia')">Bahia</span>
+        <span class="sug-chip" onclick="sugerir('Minas Gerais')">Minas Gerais</span>
+        <span class="sug-chip" onclick="sugerir('São Paulo')">São Paulo</span>
+        <span class="sug-chip" onclick="sugerir('Rio de Janeiro')">Rio de Janeiro</span>
+        <span class="sug-chip" onclick="sugerir('Nordeste, Brasil')">Nordeste</span>
+      </div>
     </div>
   </div>
 
-  <!-- ALERTA DE OPORTUNIDADES -->
-  <div class="oportunidade-box" id="oport-box">
-    <div class="oport-titulo">💡 Oportunidades na região</div>
-    <div id="oport-itens"></div>
-  </div>
-
-  <!-- ABAS -->
-  <div class="abas">
-    <button class="aba-btn active" data-aba="clientes" onclick="switchAba('clientes', this)">Clientes</button>
-    <button class="aba-btn" data-aba="prospects" onclick="switchAba('prospects', this)">Prospects</button>
-    <button class="aba-btn" data-aba="representantes" onclick="switchAba('representantes', this)">Reps.</button>
-  </div>
-
-  <!-- ABA CLIENTES -->
-  <div class="aba-conteudo active" id="aba-clientes">
-    <div class="filtro-lista">
-      <input type="text" id="filtro-cliente" placeholder="Filtrar por nome, CNPJ ou município..." oninput="filtrarClientes()">
+  <!-- Painel lateral -->
+  <div id="painel">
+    <div class="painel-header">
+      <div id="painel-titulo">—</div>
+      <button id="btn-nova-busca">↩ Nova busca</button>
     </div>
-    <div class="lista-scroll" id="lista-clientes"></div>
+
+    <div class="stats-grid">
+      <div class="stat-card stat-verde">
+        <span class="stat-num" id="stat-ativos">0</span>
+        <span class="stat-label">Clientes Ativos</span>
+      </div>
+      <div class="stat-card stat-vermelho">
+        <span class="stat-num" id="stat-inativos">0</span>
+        <span class="stat-label">Clientes Inativos</span>
+      </div>
+      <div class="stat-card stat-azul">
+        <span class="stat-num" id="stat-prospects">0</span>
+        <span class="stat-label">Prospects</span>
+      </div>
+      <div class="stat-card stat-amarelo">
+        <span class="stat-num" id="stat-reps">0</span>
+        <span class="stat-label">Representantes</span>
+      </div>
+    </div>
+
+    <div class="op-titulo">Oportunidades na região</div>
+    <div id="oportunidades"></div>
+
+    <div class="tabs-header">
+      <button class="tab-btn active" data-tab="clientes">Clientes</button>
+      <button class="tab-btn" data-tab="prospects">Prospects</button>
+      <button class="tab-btn" data-tab="reps">Reps</button>
+    </div>
+
+    <div class="tabs-body">
+      <!-- Aba Clientes -->
+      <div class="tab-content active" id="tab-clientes">
+        <div class="tab-filtro">
+          <input type="text" id="filtro-clientes" placeholder="Filtrar clientes…" />
+        </div>
+        <div class="tab-lista" id="lista-clientes"></div>
+      </div>
+
+      <!-- Aba Prospects -->
+      <div class="tab-content" id="tab-prospects">
+        <div class="tab-filtro">
+          <input type="text" id="filtro-prospects" placeholder="Filtrar prospects…" />
+        </div>
+        <div class="tab-lista" id="lista-prospects"></div>
+      </div>
+
+      <!-- Aba Representantes -->
+      <div class="tab-content" id="tab-reps">
+        <div class="tab-filtro">
+          <input type="text" id="filtro-representantes" placeholder="Filtrar representantes…" />
+        </div>
+        <div class="tab-lista" id="lista-representantes"></div>
+      </div>
+    </div>
   </div>
 
-  <!-- ABA PROSPECTS -->
-  <div class="aba-conteudo" id="aba-prospects">
-    <div class="filtro-lista">
-      <input type="text" id="filtro-prospect" placeholder="Filtrar prospects..." oninput="filtrarProspects()">
+  <!-- Drawer representante -->
+  <div id="drawer">
+    <div class="drawer-header">
+      <div id="drawer-avatar">👤</div>
+      <div class="drawer-info">
+        <div id="drawer-nome">—</div>
+        <div id="drawer-divisao">—</div>
+      </div>
+      <button id="btn-fechar-drawer">✕</button>
     </div>
-    <div class="lista-scroll" id="lista-prospects"></div>
+    <div class="drawer-stats">
+      <div class="drawer-stat ds-verde">
+        <div class="ds-num" id="drawer-ativos">0</div>
+        <div class="ds-label">Ativos</div>
+      </div>
+      <div class="drawer-stat ds-vermelho">
+        <div class="ds-num" id="drawer-inativos">0</div>
+        <div class="ds-label">Inativos</div>
+      </div>
+      <div class="drawer-stat ds-azul">
+        <div class="ds-num" id="drawer-prosp-raio">0</div>
+        <div class="ds-label">Prospects</div>
+      </div>
+      <div class="drawer-stat ds-amarelo">
+        <div class="ds-num">200</div>
+        <div class="ds-label">km raio</div>
+      </div>
+    </div>
+    <button id="btn-rota-csv">🗺 Ver rota + Exportar CSV</button>
   </div>
 
-  <!-- ABA REPRESENTANTES -->
-  <div class="aba-conteudo" id="aba-representantes">
-    <div class="lista-scroll" id="lista-reps"></div>
-  </div>
-</div>
+  <!-- Scripts -->
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"></script>
+  <script src="app.js"></script>
+  <script>
+    function sugerir(termo) {
+      document.getElementById('input-regiao').value = termo;
+      buscarRegiao();
+    }
+  </script>
 
-<!-- PAINEL DE DETALHE DO REPRESENTANTE -->
-<div id="rep-detalhe">
-  <div class="rep-det-header">
-    <div class="rep-avatar" id="rep-det-avatar">👤</div>
-    <div class="rep-det-nome" id="rep-det-nome">—</div>
-    <button class="btn-fechar-rep" onclick="fecharRepDetalhe()">×</button>
-  </div>
-  <div class="rep-det-stats">
-    <div class="rep-det-stat">
-      <strong style="color:var(--ativo)" id="rd-ativos">0</strong>
-      <span>Ativos</span>
-    </div>
-    <div class="rep-det-stat">
-      <strong style="color:var(--inativo)" id="rd-inativos">0</strong>
-      <span>Inativos</span>
-    </div>
-    <div class="rep-det-stat">
-      <strong style="color:var(--prospect)" id="rd-prospects">0</strong>
-      <span>Prospects</span>
-    </div>
-    <div class="rep-det-stat">
-      <strong style="color:var(--rep)" id="rd-raio">0km</strong>
-      <span>Raio</span>
-    </div>
-  </div>
-  <button class="btn-rota" id="btn-ver-rota" onclick="verRotaRep()">
-    🗺 Ver rota com clientes ativos + prospects
-  </button>
-</div>
-
-<!-- LOADING -->
-<div id="loading" class="hidden">
-  <div class="spinner"></div>
-  <p id="loading-msg">Carregando dados...</p>
-</div>
-
-<!-- TOAST -->
-<div id="toast"></div>
-
-<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-<script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"></script>
-<script src="app.js"></script>
 </body>
 </html>
